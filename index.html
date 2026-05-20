@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>DER SCHULDNER-CHECK</title>
+    <style>
+        body { background-color: #050505; color: #ff3131; font-family: 'Courier New', monospace; 
+               display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { text-align: center; border: 2px solid #ff3131; padding: 40px; border-radius: 15px; 
+                     box-shadow: 0 0 30px rgba(255, 49, 49, 0.3); background: #0f0f0f; }
+        h1 { text-transform: uppercase; letter-spacing: 5px; }
+        .counter { font-size: 60px; margin: 20px 0; color: #fff; }
+        .debt-list { text-align: left; margin: 20px auto; display: inline-block; color: #39d353; }
+        li { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Schuldner-Status</h1>
+    <div class="counter" id="timer">Lädt...</div>
+    <p>Zeit seit der ersten Wette ohne Zahlung:</p>
+    
+    <div class="debt-list">
+        <strong>Offene Schulden:</strong>
+        <ul>
+            <li>Dir: 3 Döner + 50 €</li>
+            <li>Marc: 1 Döner</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+    // Startdatum der ersten Wette (Beispiel: 01. Mai 2026)
+    const startDate = new Date("May 01, 2026 00:00:00").getTime();
+
+    setInterval(function() {
+        const now = new Date().getTime();
+        const diff = now - startDate;
+        
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        
+        document.getElementById("timer").innerHTML = days + "d " + hours + "h " + mins + "m";
+    }, 1000);
+</script>
+
+</body>
+</html>
