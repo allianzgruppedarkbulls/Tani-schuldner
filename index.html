@@ -2,49 +2,70 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>DER SCHULDNER-CHECK</title>
-    <style>
-        body { background-color: #050505; color: #ff3131; font-family: 'Courier New', monospace; 
-               display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .container { text-align: center; border: 2px solid #ff3131; padding: 40px; border-radius: 15px; 
-                     box-shadow: 0 0 30px rgba(255, 49, 49, 0.3); background: #0f0f0f; }
-        h1 { text-transform: uppercase; letter-spacing: 5px; }
-        .counter { font-size: 60px; margin: 20px 0; color: #fff; }
-        .debt-list { text-align: left; margin: 20px auto; display: inline-block; color: #39d353; }
-        li { margin-bottom: 10px; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProHydro CAD v4.0 - Modularer Bewässerungsplaner</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-<div class="container">
-    <h1>Schuldner-Status</h1>
-    <div class="counter" id="timer">Lädt...</div>
-    <p>Zeit seit der ersten Wette ohne Zahlung:</p>
-    
-    <div class="debt-list">
-        <strong>Offene Schulden:</strong>
-        <ul>
-            <li>Dir: 3 Döner + 50 €</li>
-            <li>Marc: 1 Döner</li>
-        </ul>
+    <!-- Link-Banner bei geladenem Plan -->
+    <div id="toast-msg" class="toast"></div>
+
+    <div id="toolbar">
+        <h2>ProHydro CAD</h2>
+        
+        <div class="tool-group">
+            <label>1. Datei & Maßstab</label>
+            <label class="file-btn">📁 Bild hochladen <input type="file" id="img-upload" accept="image/*" style="display:none;"></label>
+            <button id="btn-scale">📏 Maßstab ziehen</button>
+        </div>
+
+        <div class="tool-group">
+            <label>2. Flächen (Punkte & Kurven)</label>
+            <button id="btn-draw-lawn">🟩 Rasen abstecken</button>
+            <button id="btn-draw-drip">💧 Tropfzone abstecken</button>
+        </div>
+
+        <div class="tool-group">
+            <label>3. Bauteile</label>
+            <button id="btn-add-source">🚰 Wasserquelle</button>
+            <button id="btn-add-sprinkler">🎯 Regner setzen</button>
+        </div>
+
+        <div class="tool-group">
+            <label>Modus & Aktionen</label>
+            <button id="btn-select" class="active">🖐️ Bearbeiten / Anpacken</button>
+            <button id="btn-delete" style="color: #ff5555;">🗑️ Objekt löschen</button>
+        </div>
+
+        <div class="tool-group" style="margin-top: auto;">
+            <label>Speichern & Teilen</label>
+            <button id="btn-share" style="background: var(--accent); font-weight: bold;">🔗 Link & Code erstellen</button>
+        </div>
     </div>
-</div>
 
-<script>
-    // Startdatum der ersten Wette (Beispiel: 01. Mai 2026)
-    const startDate = new Date("May 01, 2026 00:00:00").getTime();
+    <div id="canvas-container">
+        <canvas id="mainCanvas"></canvas>
+        <div id="status-bar">Mausrad: Zoomen | Leertaste + Drag: Verschieben | Doppelklick: Fläche schließen</div>
+    </div>
 
-    setInterval(function() {
-        const now = new Date().getTime();
-        const diff = now - startDate;
-        
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        
-        document.getElementById("timer").innerHTML = days + "d " + hours + "h " + mins + "m";
-    }, 1000);
-</script>
+    <div id="sidebar">
+        <div class="card">
+            <h3>System-Status</h3>
+            <div class="prop-row"><span>Maßstab:</span> <strong id="val-px-m">20.0 px/m</strong></div>
+            <div class="prop-row"><span>Zoom:</span> <strong id="val-zoom">100%</strong></div>
+        </div>
 
+        <div class="card" id="selected-props" style="display: none;">
+            <h3>Eigenschaften</h3>
+            <div id="dynamic-props"></div>
+        </div>
+    </div>
+
+    <!-- Modulare Scripte einbinden -->
+    <script src="js/storage.js"></script>
+    <script src="js/sprinklers.js"></script>
+    <script src="js/lawn.js"></script>
+    <script src="js/main.js"></script>
 </body>
 </html>
