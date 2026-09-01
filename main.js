@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Exaktes Clipping im Polygon + T-Stücke für Tropfleitungen)
+// main.js - CAD Hauptsteuerung (Mit Eckpunkten zum Ziehen, Ringleitung & Tropfzonen-Raster)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -17,7 +17,7 @@ let bgImage = null;
 let objects = [];
 let polygonPoints = [];
 let selectedObj = null;
-let activeHandle = null; 
+let activeHandleIndex = -1; // Index des gezogenen Eckpunkts
 
 let scaleStartPoint = null;
 let scaleEndPoint = null;
@@ -30,6 +30,7 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') spacePressed = true; 
     if (e.key === 'Escape') {
         selectedObj = null;
+        activeHandleIndex = -1;
         updateSidebar(null);
         draw();
     }
@@ -84,6 +85,7 @@ function setTool(tool) {
     scaleStartPoint = null;
     scaleEndPoint = null;
     measureStartPoint = null;
+    activeHandleIndex = -1;
     document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
     const btn = document.getElementById(`btn-${tool}`);
     if (btn) btn.classList.add('active');
@@ -113,6 +115,7 @@ if (deleteBtn) {
         if (selectedObj) {
             objects = objects.filter(o => o !== selectedObj);
             selectedObj = null;
+            activeHandleIndex = -1;
             updateSidebar(null);
             draw();
         }
@@ -149,7 +152,7 @@ function updateSidebar(obj) {
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #cbd5e1;">
                 <h3 style="color: #fff; margin-bottom: 10px;">Übersicht & Status</h3>
-                <p style="font-size:12px; color:#94a3b8;">Klicke auf eine Fläche im Plan, um sie zu bearbeiten. (ESC zum Abwählen)</p>
+                <p style="font-size:12px; color:#94a3b8;">Klicke auf eine Fläche, um Punkte zu bearbeiten. (ESC zum Abwählen)</p>
                 <hr style="border:0; border-top:1px solid #334155; margin: 12px 0;">
                 <div style="max-height:180px; overflow-y:auto; margin-bottom:15px;">
                     <p style="font-size:12px; font-weight:bold; color:#cbd5e1; margin-bottom:5px;">Erfasste Flächen (${objects.filter(o=>o.type==='lawn'||o.type==='drip').length}):</p>
@@ -194,7 +197,6 @@ function updateSidebar(obj) {
             </div>`;
     } else if (obj.type === 'drip') {
         if (!obj.soilType) obj.soilType = 'normal';
-        if (!obj.plantType) obj.plantType = 'normal';
         if (!obj.dripDistance) obj.dripDistance = 33; 
         if (!obj.waterRate) obj.waterRate = 20;
         if (obj.points) obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
@@ -210,9 +212,9 @@ function updateSidebar(obj) {
                 <p><strong>Fläche:</strong> ${area} m²</p>
                 <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand:</label>
                 <select id="drip-dist-select" onchange="changeDripDistance(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (Eng - mehr Linien)</option>
+                    <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (Eng)</option>
                     <option value="33" ${obj.dripDistance == 33 ? 'selected' : ''}>33 cm (Standard)</option>
-                    <option value="50" ${obj.dripDistance == 50 ? 'selected' : ''}>50 cm (Weit - weniger Linien)</option>
+                    <option value="50" ${obj.dripDistance == 50 ? 'selected' : ''}>50 cm (Weit)</option>
                 </select>
                 <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
                 <p><strong>Wöchentlicher Bedarf:</strong> ${weeklyWaterLiters} Liter</p>
@@ -223,8 +225,8 @@ function updateSidebar(obj) {
     }
 }
 
-function deselectCurrent() { selectedObj = null; updateSidebar(null); draw(); }
-function selectObjectByIndex(index) { if (objects[index]) { selectedObj = objects[index]; updateSidebar(selectedObj); draw(); } }
+function deselectCurrent() { selectedObj = null; activeHandleIndex = -1; updateSidebar(null); draw(); }
+function selectObjectByIndex(index) { if (objects[index]) { selectedObj = objects[index]; activeHandleIndex = -1; updateSidebar(selectedObj); draw(); } }
 function changeSoilType(type) { if (!selectedObj) return; selectedObj.soilType = type; updateSidebar(selectedObj); draw(); }
 function changeWaterRate(val) { if (!selectedObj) return; selectedObj.waterRate = parseFloat(val) || 0; updateSidebar(selectedObj); draw(); }
 function changeDripDistance(val) { if (!selectedObj) return; selectedObj.dripDistance = parseInt(val); updateSidebar(selectedObj); draw(); }
@@ -241,7 +243,7 @@ function calculatePolygonArea(pts, pxm) {
 }
 
 // ==========================================
-// MOUSE & EVENTS
+// MOUSE & EVENTS (MIT ECKPUNKT-DRAG)
 // ==========================================
 canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -275,7 +277,20 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     if (currentTool === 'select') {
+        // Prüfen, ob ein Eckpunkt des ausgewählten Objekts gegriffen wurde
+        if (selectedObj && !selectedObj.locked) {
+            const handleRadius = 12 / scale;
+            for (let i = 0; i < selectedObj.points.length; i++) {
+                if (Math.hypot(world.x - selectedObj.points[i].x, world.y - selectedObj.points[i].y) < handleRadius) {
+                    activeHandleIndex = i;
+                    return;
+                }
+            }
+        }
+
+        // Andernfalls Objekt auswählen
         selectedObj = objects.slice().reverse().find(o => isPointInPolygon(world, o.points)) || null;
+        activeHandleIndex = -1;
         updateSidebar(selectedObj);
         draw();
     }
@@ -293,7 +308,7 @@ function isPointInPolygon(point, vs) {
 function finishPolygon() {
     if (polygonPoints.length > 2) {
         const type = currentTool === 'draw-lawn' ? 'lawn' : 'drip';
-        const newObj = { type, points: [...polygonPoints], soilType: 'normal', plantType: 'normal', dripDistance: 33, waterRate: type === 'lawn' ? 25 : 20, locked: false };
+        const newObj = { type, points: [...polygonPoints], soilType: 'normal', dripDistance: 33, waterRate: type === 'lawn' ? 25 : 20, locked: false };
         objects.push(newObj);
         selectedObj = newObj;
         polygonPoints = [];
@@ -303,16 +318,30 @@ function finishPolygon() {
 }
 
 canvas.addEventListener('dblclick', finishPolygon);
+
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
+    const world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
+
     if (isPanning) { offsetX = (e.clientX - rect.left) - startPanX; offsetY = (e.clientY - rect.top) - startPanY; draw(); return; }
-    currentMouseWorld = toWorld(e.clientX - rect.left, e.clientY - rect.top);
+    
+    // Eckpunkt verschieben
+    if (activeHandleIndex !== -1 && selectedObj && !selectedObj.locked) {
+        selectedObj.points[activeHandleIndex] = world;
+        selectedObj.areaM2 = calculatePolygonArea(selectedObj.points, pixelsPerMeter);
+        updateSidebar(selectedObj);
+        draw();
+        return;
+    }
+
+    currentMouseWorld = world;
     if (currentTool !== 'select') draw();
 });
-canvas.addEventListener('mouseup', () => isPanning = false);
+
+canvas.addEventListener('mouseup', () => { isPanning = false; activeHandleIndex = -1; });
 
 // ==========================================
-// ZEICHEN-LOOP MIT CLIP & T-STÜCKEN
+// ZEICHEN-LOOP (MIT RINGLEITUNG & ECKPUNKT-HANDLES)
 // ==========================================
 function draw() {
     ctx.clearRect(0, 0, width, height);
@@ -340,9 +369,9 @@ function draw() {
             ctx.fillStyle = obj === selectedObj ? 'rgba(249, 115, 22, 0.45)' : 'rgba(249, 115, 22, 0.25)';
             ctx.fill();
 
-            // 1. EXAKTES CLIPPING INNERHALB DES POLYGONS
+            // EXAKTES CLIPPING FÜR INNENLEITUNGEN
             ctx.save();
-            ctx.clip(); // Schränkt das Zeichnen exakt auf die Tropfzonen-Form ein!
+            ctx.clip(); 
 
             const spacingPx = (obj.dripDistance || 33) * (pixelsPerMeter / 100) * 1.5;
             let minX = Math.min(...obj.points.map(p => p.x));
@@ -350,31 +379,30 @@ function draw() {
             let minY = Math.min(...obj.points.map(p => p.y));
             let maxY = Math.max(...obj.points.map(p => p.y));
 
-            // Hauptzuleitung (Versorgungsstrang) an der linken Seite der Bounding Box
-            const feedX = minX + 15 / scale;
-            ctx.strokeStyle = '#ffffff';
+            // 1. UMLAUFENDE RINGLEITUNG (Entlang der Innenkante / Bounding Box)
+            ctx.strokeStyle = '#38bdf8'; // Blau für Frischwasser-Ringleitung
             ctx.lineWidth = 3 / scale;
-            ctx.beginPath();
-            ctx.moveTo(feedX, minY);
-            ctx.lineTo(feedX, maxY);
-            ctx.stroke();
+            ctx.strokeRect(minX + 8/scale, minY + 8/scale, (maxX - minX) - 16/scale, (maxY - minY) - 16/scale);
 
-            // Tropfschläuche & T-Stücke
+            // 2. PARABOLISCHE TROPFSCHLÄUCHE IM INNEREN + T-STÜCKE
+            ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1.5 / scale;
             ctx.beginPath();
-            for (let y = minY + 10; y <= maxY - 10; y += spacingPx) {
-                // Waagerechter Tropfschlauch
-                ctx.moveTo(feedX, y);
-                ctx.lineTo(maxX - 10, y);
+            
+            for (let y = minY + 20; y <= maxY - 20; y += spacingPx) {
+                // Tropfschlauch von links nach rechts
+                ctx.moveTo(minX + 12/scale, y);
+                ctx.lineTo(maxX - 12/scale, y);
 
-                // Optisches T-Stück am Abzweig (kleiner Querpunkt)
+                // T-Stücke an den Endpunkten
                 ctx.save();
                 ctx.fillStyle = '#38bdf8';
-                ctx.fillRect(feedX - 3/scale, y - 3/scale, 6/scale, 6/scale);
+                ctx.fillRect(minX + 10/scale, y - 3/scale, 5/scale, 6/scale);
+                ctx.fillRect(maxX - 15/scale, y - 3/scale, 5/scale, 6/scale);
                 ctx.restore();
             }
             ctx.stroke();
-            ctx.restore(); // Ende Clipping
+            ctx.restore(); // Ende Clip
 
             // Äußere Umrandung der Tropfzone
             ctx.strokeStyle = obj === selectedObj ? '#f97316' : '#c2410c';
@@ -382,13 +410,26 @@ function draw() {
             ctx.stroke();
         }
 
-        // Text Info
+        // Text Info im Zentrum
         let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
         let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
         ctx.fillStyle = '#ffffff';
         ctx.font = `bold ${12 / scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText(`${obj.type === 'lawn' ? 'Rasen' : 'Tropfzone'}: ${obj.areaM2 || 0} m²`, cx, cy);
+
+        // ECKPUNKTE (HANDLES) EINZEICHNEN, WENN AUSGEWÄHLT
+        if (obj === selectedObj) {
+            obj.points.forEach((p, idx) => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 6 / scale, 0, Math.PI * 2);
+                ctx.fillStyle = '#38bdf8';
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2 / scale;
+                ctx.fill();
+                ctx.stroke();
+            });
+        }
     });
 
     if (polygonPoints.length > 0) {
