@@ -15,6 +15,7 @@ function exportToLink(objects, pixelsPerMeter) {
     });
 }
 
+
 // Lädt Daten direkt aus der URL-Adresse beim Öffnen der Seite
 function importFromLink() {
     const hash = window.location.hash;
