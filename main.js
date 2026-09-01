@@ -1,3 +1,5 @@
+// main.js - CAD Hauptsteuerung
+
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
 const container = document.getElementById('canvas-container');
@@ -125,9 +127,16 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
-    // 1. Maßstab ziehen
+    // 1. Maßstab ziehen (Mit Warnmeldung bei vorhandenen Objekten)
     if (currentTool === 'scale') {
         if (!scaleStartPoint) {
+            if (objects.length > 0) {
+                const confirmChange = confirm("Achtung: Wenn du den Maßstab neu einstellst, verändern sich alle bisher gezeichneten Längen und Flächen! Möchtest du wirklich fortfahren?");
+                if (!confirmChange) {
+                    setTool('select');
+                    return;
+                }
+            }
             scaleStartPoint = world;
         } else {
             scaleEndPoint = world;
@@ -145,7 +154,7 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
-    // 2. Kontrollmessung
+    // 2. Kontrollmessung / Maßband
     if (currentTool === 'measure') {
         if (!measureStartPoint) {
             measureStartPoint = world;
@@ -188,18 +197,32 @@ canvas.addEventListener('mousedown', (e) => {
         objects.push(spr); selectedObj = spr; setTool('select'); return;
     }
 
-    // 6. Select-Modus (Objekte / Knoten / Biegungen verschieben)
+    // 6. Select-Modus (Objekte / Knoten / Biegungen / Schraffierte Zwischenpunkte)
     if (currentTool === 'select') {
         activeHandle = null;
 
-        // A. Flächen-Knotenpunkte & Biegungen prüfen
+        // A. Flächen-Knotenpunkte, Biegungen & Schraffierte Zwischenpunkte (+)
         if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip')) {
+            // Eckpunkt anklicken
             const hitIdx = selectedObj.points.findIndex(p => Math.hypot(p.x - world.x, p.y - world.y) < (12 / scale));
             if (hitIdx !== -1) {
                 activeHandle = 'node-point'; activeNodeIndex = hitIdx; return;
             }
+
+            // Schraffierte Zwischenpunkte (+) anklicken -> Wandelt in echten Punkt um!
+            if (typeof getEdgeAddPoints === 'function') {
+                const addPoints = getEdgeAddPoints(selectedObj.points);
+                const addHit = addPoints.find(ap => Math.hypot(ap.x - world.x, ap.y - world.y) < (12 / scale));
+                if (addHit) {
+                    selectedObj.points.splice(addHit.index, 0, { x: addHit.x, y: addHit.y });
+                    activeHandle = 'node-point';
+                    activeNodeIndex = addHit.index;
+                    draw();
+                    return;
+                }
+            }
             
-            const mids = getPolygonMidpoints(selectedObj.points);
+            const mids = getPolygonMidpoints ? getPolygonMidpoints(selectedObj.points) : [];
             const midHit = mids.find(m => Math.hypot(m.x - world.x, m.y - world.y) < (12 / scale));
             if (midHit) {
                 activeHandle = 'curve-point'; activeNodeIndex = midHit.index; return;
@@ -381,7 +404,7 @@ function draw() {
         ctx.stroke();
     }
 
-    // 5. Zeichne Kontrollmessungs-Linie
+    // 5. Zeichne Kontrollmessungs-Linie / Maßband
     if (currentTool === 'measure' && measureStartPoint && currentMouseWorld) {
         const distPx = Math.hypot(currentMouseWorld.x - measureStartPoint.x, currentMouseWorld.y - measureStartPoint.y);
         const distMeters = (distPx / pixelsPerMeter).toFixed(2);
