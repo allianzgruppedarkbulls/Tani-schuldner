@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Korrigiert für Sidebar & Tropfzonen)
+// main.js - CAD Hauptsteuerung (Erweitert für Tropfzonen, Boden & Pflanzenbedarf)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -7,7 +7,6 @@ const container = document.getElementById('canvas-container');
 let width = container.clientWidth;
 let height = container.clientHeight;
 canvas.width = width; canvas.height = height;
-
 
 let scale = 1.0, offsetX = 0, offsetY = 0;
 let isPanning = false, startPanX = 0, startPanY = 0, spacePressed = false;
@@ -48,11 +47,12 @@ container.addEventListener('wheel', (e) => {
     offsetX = mX - (mX - offsetX) * factor;
     offsetY = mY - (mY - offsetY) * factor;
     scale *= factor;
-    document.getElementById('val-zoom').innerText = `${Math.round(scale * 100)}%`;
+    const zoomEl = document.getElementById('val-zoom');
+    if(zoomEl) zoomEl.innerText = `${Math.round(scale * 100)}%`;
     draw();
 });
 
-document.getElementById('img-upload').addEventListener('change', (e) => {
+document.getElementById('img-upload')?.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -64,7 +64,8 @@ document.getElementById('img-upload').addEventListener('change', (e) => {
             scale = Math.min(scaleX, scaleY);
             offsetX = (width - bgImage.width * scale) / 2;
             offsetY = (height - bgImage.height * scale) / 2;
-            document.getElementById('val-zoom').innerText = `${Math.round(scale * 100)}%`;
+            const zoomEl = document.getElementById('val-zoom');
+            if(zoomEl) zoomEl.innerText = `${Math.round(scale * 100)}%`;
             setTool('scale');
             draw();
         };
@@ -116,14 +117,11 @@ if (deleteBtn) {
 }
 
 // ==========================================
-// SIDEBAR & LIVE-BERECHNUNG (KORRIGIERT)
+// SIDEBAR & LIVE-BERECHNUNG (ERWEITERT)
 // ==========================================
 function updateSidebar(obj) {
-    // Falls deine Sidebar im HTML direkt anders heißt, fangen wir beide gängigen IDs ab:
     let sidebar = document.getElementById('sidebar-content') || document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (!sidebar) return;
-
-    // Falls das Element direkt die rechte Box ist und keinen inneren Container hat, nutzen wir es direkt oder suchen ein inneres Div
     let targetContainer = sidebar.id === 'sidebar-content' ? sidebar : (sidebar.querySelector('#sidebar-content') || sidebar);
 
     if (!obj) {
@@ -133,7 +131,7 @@ function updateSidebar(obj) {
                 <p>Maßstab: <span id="val-px-m">${pixelsPerMeter.toFixed(1)} px/m</span></p>
                 <p>Zoom: <span id="val-zoom">${Math.round(scale * 100)}%</span></p>
                 <hr style="border:0; border-top:1px solid #334155; margin: 15px 0;">
-                <p style="color: #94a3b8; text-align: center; margin-top: 20px;">Kein Objekt ausgewählt.<br>Klicke auf eine Rasen- oder Tropfzone.</p>
+                <p style="color: #94a3b8; text-align: center; margin-top: 20px;">Kein Objekt ausgewählt.<br>Klicke auf Rasen oder Tropfzonen.</p>
                 <div id="global-water-summary" style="margin-top: 20px;"></div>
             </div>`;
         updateGlobalWaterBalance();
@@ -141,9 +139,8 @@ function updateSidebar(obj) {
     }
 
     if (obj.type === 'lawn') {
-        const soilRates = { sand: 32, normal: 25, clay: 18 };
         if (!obj.soilType) obj.soilType = 'normal';
-        if (!obj.waterRate) obj.waterRate = soilRates[obj.soilType];
+        if (!obj.waterRate) obj.waterRate = 25;
         
         if (typeof calculatePolygonArea === 'function' && obj.points) {
             obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
@@ -158,9 +155,9 @@ function updateSidebar(obj) {
                 
                 <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Bodenart:</label>
                 <select id="soil-type-select" onchange="changeSoilType(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden (~32 l/m²/W)</option>
-                    <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (~25 l/m²/W)</option>
-                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehmboden (~18 l/m²/W)</option>
+                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden (hoher Durchlässigkeit)</option>
+                    <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (Standard)</option>
+                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden (speichert Feuchtigkeit)</option>
                 </select>
 
                 <label style="display:block; font-size:12px; color:#94a3b8;">Wasserbedarf (l/m²/Woche):</label>
@@ -175,37 +172,47 @@ function updateSidebar(obj) {
             </div>
         `;
     } else if (obj.type === 'drip') {
-        if (!obj.dripDistance) obj.dripDistance = 33; // cm Abstands-Standard
-        if (!obj.flowPerMeter) obj.flowPerMeter = 2.0; // l/h pro Meter
-        
+        if (!obj.soilType) obj.soilType = 'normal';
+        if (!obj.plantType) obj.plantType = 'normal'; // standard, low, high (z.B. Hortensien)
+        if (!obj.dripDistance) obj.dripDistance = 33; // cm
+        if (!obj.waterRate) obj.waterRate = 20; // l/m²/Woche basis
+
         if (typeof calculatePolygonArea === 'function' && obj.points) {
             obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
         }
         const area = obj.areaM2 || 0;
-        
-        // Rohrlänge schätzen (falls nicht anders berechnet)
-        let totalLength = 0;
-        if (obj.points && obj.points.length > 1) {
-            for(let i=0; i<obj.points.length; i++) {
-                let p1 = obj.points[i];
-                let p2 = obj.points[(i+1)%obj.points.length];
-                totalLength += Math.hypot(p2.x - p1.x, p2.y - p1.y);
-            }
-            totalLength = Math.round((totalLength / pixelsPerMeter) * (100 / obj.dripDistance) * 2); // einfache Näherung für Mäander/Schleifen
-        }
+        const weeklyWaterLiters = Math.round(area * obj.waterRate);
 
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #fff;">
-                <h3 style="color: #fb923c; margin-bottom: 10px;">💧 Tropfzone</h3>
+                <h3 style="color: #fb923c; margin-bottom: 10px;">💧 Tropfzone (Pflanzen)</h3>
                 <p><strong>Fläche:</strong> ${area} m²</p>
-                <p><strong>Geschätztes Rohr:</strong> ca. ${Math.round(totalLength)} m</p>
                 
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand:</label>
-                <select id="drip-dist-select" onchange="changeDripDistance(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="30" ${obj.dripDistance == 30 ? 'selected' : ''}>30 cm Abstand</option>
-                    <option value="33" ${obj.dripDistance == 33 ? 'selected' : ''}>33 cm Abstand (Standard)</option>
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Bodenart:</label>
+                <select id="drip-soil-select" onchange="changeDripSoil(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
+                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden (schnell trocken)</option>
+                    <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (Standard)</option>
+                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden (Achtung Staunässe!)</option>
                 </select>
 
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Pflanzentyp / Wasserbedarf:</label>
+                <select id="drip-plant-select" onchange="changeDripPlant(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
+                    <option value="low" ${obj.plantType === 'low' ? 'selected' : ''}>Wenig Wasser (z.B. Lavendel, Steingarten)</option>
+                    <option value="normal" ${obj.plantType === 'normal' ? 'selected' : ''}>Normaler Bedarf (Sträucher, Hecken)</option>
+                    <option value="high" ${obj.plantType === 'high' ? 'selected' : ''}>Sehr hohem Bedarf (z.B. Hortensien, Stauden)</option>
+                </select>
+
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand im Rohr:</label>
+                <select id="drip-dist-select" onchange="changeDripDistance(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
+                    <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (eng bei sandigem Boden)</option>
+                    <option value="30" ${obj.dripDistance == 30 ? 'selected' : ''}>30 cm (Standard)</option>
+                    <option value="33" ${obj.dripDistance == 33 ? 'selected' : ''}>33 cm (Standard)</option>
+                    <option value="50" ${obj.dripDistance == 50 ? 'selected' : ''}>50 cm (weit bei Lehm / geringer Bedarf)</option>
+                </select>
+
+                <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
+                <p><strong>Wöchentlicher Bedarf:</strong> ${weeklyWaterLiters} Liter</p>
+                
                 <button onclick="toggleLockSelected()" style="width:100%; padding:8px; margin-top:15px; background:#334155; color:#fff; border:none; border-radius:4px; cursor:pointer;">
                     ${obj.locked ? '🔓 Zone entsperren' : '🔒 Zone sperren'}
                 </button>
@@ -239,10 +246,38 @@ function changeWaterRate(val) {
     updateGlobalWaterBalance();
 }
 
+function changeDripSoil(type) {
+    if (!selectedObj || selectedObj.type !== 'drip') return;
+    selectedObj.soilType = type;
+    updateDripWaterCalculation();
+}
+
+function changeDripPlant(type) {
+    if (!selectedObj || selectedObj.type !== 'drip') return;
+    selectedObj.plantType = type;
+    // Automatischen Tropferabstand je nach Pflanze/Boden vorschlagen
+    if (type === 'high') selectedObj.dripDistance = 20;
+    else if (type === 'low') selectedObj.dripDistance = 50;
+    else selectedObj.dripDistance = 33;
+    
+    updateDripWaterCalculation();
+}
+
 function changeDripDistance(val) {
     if (!selectedObj || selectedObj.type !== 'drip') return;
     selectedObj.dripDistance = parseInt(val);
     updateSidebar(selectedObj);
+}
+
+function updateDripWaterCalculation() {
+    if (!selectedObj || selectedObj.type !== 'drip') return;
+    // Multiplikatoren für Pflanzentyp
+    const plantMultipliers = { low: 0.6, normal: 1.0, high: 1.5 };
+    const baseRate = 20; // l/m² standard
+    selectedObj.waterRate = baseRate * (plantMultipliers[selectedObj.plantType] || 1.0);
+    
+    updateSidebar(selectedObj);
+    updateGlobalWaterBalance();
 }
 
 function toggleLockSelected() {
@@ -255,7 +290,7 @@ function toggleLockSelected() {
 function updateGlobalWaterBalance() {
     let totalWeeklyLiters = 0;
     objects.forEach(obj => {
-        if (obj.type === 'lawn') {
+        if (obj.type === 'lawn' || obj.type === 'drip') {
             totalWeeklyLiters += (obj.areaM2 || 0) * (obj.waterRate || 25);
         }
     });
@@ -265,7 +300,7 @@ function updateGlobalWaterBalance() {
     const summaryEl = document.getElementById('global-water-summary');
     if (summaryEl) {
         summaryEl.innerHTML = `
-            <h4 style="color:#38bdf8; margin-bottom:5px;">Zisternen-Check</h4>
+            <h4 style="color:#38bdf8; margin-bottom:5px;">Zisternen-Gesamtcheck</h4>
             <p>Gesamtbedarf: <strong>${Math.round(totalWeeklyLiters)} l / Woche</strong></p>
             <p>Reichweite (${cisternVolume}L): ca. <strong>${weeksRemaining} Wochen</strong></p>
         `;
@@ -351,7 +386,6 @@ canvas.addEventListener('mousedown', (e) => {
             }
         }
 
-        // Objekt oder Fläche auswählen
         selectedObj = objects.find(o => {
             if (o.type === 'sprinkler' || o.type === 'source' || o.type === 'drip-feed') {
                 return Math.hypot(o.x - world.x, o.y - world.y) < (18 / scale);
@@ -360,7 +394,6 @@ canvas.addEventListener('mousedown', (e) => {
         });
 
         if (!selectedObj) {
-            // Klick auf Polygone prüfen
             selectedObj = objects.find(o => (o.type === 'lawn' || o.type === 'drip'));
         }
 
@@ -373,7 +406,15 @@ canvas.addEventListener('mousedown', (e) => {
 function finishPolygon() {
     if (polygonPoints.length > 2) {
         const type = currentTool === 'draw-lawn' ? 'lawn' : 'drip';
-        const newObj = { type: type, points: [...polygonPoints], soilType: 'normal', waterRate: 25, locked: false };
+        const newObj = { 
+            type: type, 
+            points: [...polygonPoints], 
+            soilType: 'normal', 
+            plantType: 'normal',
+            dripDistance: 33,
+            waterRate: type === 'lawn' ? 25 : 20, 
+            locked: false 
+        };
         objects.push(newObj);
         selectedObj = newObj;
         polygonPoints = [];
