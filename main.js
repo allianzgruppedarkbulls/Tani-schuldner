@@ -28,7 +28,17 @@ let currentMouseWorld = null;
 
 function toWorld(sX, sY) { return { x: (sX - offsetX) / scale, y: (sY - offsetY) / scale }; }
 
-window.addEventListener('keydown', (e) => { if (e.code === 'Space') spacePressed = true; });
+window.addEventListener('keydown', (e) => { 
+    if (e.code === 'Space') spacePressed = true; 
+    // Taste 'L' (Lock) sperrt oder entsperrt die aktuell gewählte Fläche
+    if (e.key === 'l' || e.key === 'L') {
+        if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip')) {
+            selectedObj.locked = !selectedObj.locked;
+            updateSidebar(selectedObj);
+            draw();
+        }
+    }
+});
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') spacePressed = false; });
 
 // Wheel Zoom
@@ -52,18 +62,15 @@ document.getElementById('img-upload').addEventListener('change', (e) => {
     reader.onload = (event) => {
         bgImage = new Image();
         bgImage.onload = () => {
-            // Berechne passenden Zoom, damit das Bild komplett auf den Canvas passt
             const scaleX = (width * 0.8) / bgImage.width;
             const scaleY = (height * 0.8) / bgImage.height;
             scale = Math.min(scaleX, scaleY);
 
-            // Zentriere das Bild auf der Arbeitsfläche
             offsetX = (width - bgImage.width * scale) / 2;
             offsetY = (height - bgImage.height * scale) / 2;
 
             document.getElementById('val-zoom').innerText = `${Math.round(scale * 100)}%`;
             
-            // Wechsel direkt in den Maßstab-Ziehen-Modus
             setTool('scale');
             draw();
             setTimeout(() => {
@@ -87,7 +94,6 @@ function setTool(tool) {
     draw();
 }
 
-// Event-Listener für Buttons (Sicherheitschecks für dynamische/neue Buttons)
 const bindBtn = (id, toolName) => {
     const btn = document.getElementById(id);
     if (btn) btn.onclick = () => setTool(toolName);
@@ -111,14 +117,130 @@ if (deleteBtn) {
         if (selectedObj) {
             objects = objects.filter(o => o !== selectedObj);
             selectedObj = null;
+            updateSidebar(null);
             draw();
+            updateGlobalWaterBalance();
         }
     };
 }
 
-// Canvas Mouse Interactions
+// ==========================================
+// SIDEBAR & LIVE-BERECHNUNG (NEU)
+// ==========================================
+function updateSidebar(obj) {
+    const sidebar = document.getElementById('sidebar-content');
+    if (!sidebar) return;
+
+    if (!obj) {
+        sidebar.innerHTML = `<p style="color: #7f8c8d; text-align: center; margin-top: 20px;">Kein Objekt ausgewählt.<br>Klicke auf eine Fläche oder einen Regner.</p>`;
+        return;
+    }
+
+    if (obj.type === 'lawn') {
+        const soilRates = {
+            sand: { name: 'Sandiger Boden (leicht)', rate: 32 },
+            normal: { name: 'Mutterboden (standard)', rate: 25 },
+            clay: { name: 'Lehm-/Tonboden (schwer)', rate: 18 }
+        };
+
+        if (!obj.soilType) obj.soilType = 'normal';
+        if (!obj.waterRate) obj.waterRate = soilRates[obj.soilType].rate;
+        
+        // Fläche aktualisieren falls vorhanden
+        if (typeof calculatePolygonArea === 'function' && obj.points) {
+            obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
+        }
+        const area = obj.areaM2 || 0;
+        const weeklyWaterLiters = Math.round(area * obj.waterRate);
+
+        sidebar.innerHTML = `
+            <h3>🟩 Rasenfläche</h3>
+            <p><strong>Fläche:</strong> ${area} m²</p>
+            
+            <label style="display:block; margin-top:10px; font-size:12px;">Bodenart:</label>
+            <select id="soil-type-select" onchange="changeSoilType(this.value)" style="width:100%; padding:5px; margin-bottom:10px;">
+                <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden (~32 l/m²/Woche)</option>
+                <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (~25 l/m²/Woche)</option>
+                <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehmboden (~18 l/m²/Woche)</option>
+            </select>
+
+            <label style="display:block; font-size:12px;">Wasserbedarf (l/m²/Woche):</label>
+            <input type="number" id="water-rate-input" value="${obj.waterRate}" onchange="changeWaterRate(this.value)" style="width:100%; padding:5px; margin-bottom:10px;">
+
+            <hr style="border:0; border-top:1px solid #ddd; margin:10px 0;">
+            <p><strong>Wöchentlicher Bedarf:</strong> <span id="weekly-water-sum">${weeklyWaterLiters}</span> Liter</p>
+            
+            <button onclick="toggleLockSelected()" style="width:100%; padding:8px; margin-top:10px; cursor:pointer;">
+                ${obj.locked ? '🔓 Fläche entsperren' : '🔒 Fläche sperren'}
+            </button>
+        `;
+    } else if (obj.type === 'sprinkler') {
+        sidebar.innerHTML = `
+            <h3>💧 Regner (${obj.model})</h3>
+            <p><strong>Reichweite:</strong> ${obj.radius} m</p>
+            <p><strong>Winkel:</strong> ${obj.arc}°</p>
+            <p><strong>Durchfluss:</strong> ${obj.flow} m³/h</p>
+        `;
+    } else {
+        sidebar.innerHTML = `
+            <h3>Objekt-Details</h3>
+            <p>Typ: ${obj.type}</p>
+        `;
+    }
+}
+
+function changeSoilType(type) {
+    if (!selectedObj || selectedObj.type !== 'lawn') return;
+    selectedObj.soilType = type;
+    const soilRates = { sand: 32, normal: 25, clay: 18 };
+    selectedObj.waterRate = soilRates[type];
+    updateSidebar(selectedObj);
+    updateGlobalWaterBalance();
+}
+
+function changeWaterRate(val) {
+    if (!selectedObj || selectedObj.type !== 'lawn') return;
+    selectedObj.waterRate = parseFloat(val) || 0;
+    updateSidebar(selectedObj);
+    updateGlobalWaterBalance();
+}
+
+function toggleLockSelected() {
+    if (!selectedObj) return;
+    selectedObj.locked = !selectedObj.locked;
+    updateSidebar(selectedObj);
+    draw();
+}
+
+function updateGlobalWaterBalance() {
+    let totalWeeklyLiters = 0;
+
+    objects.forEach(obj => {
+        if (obj.type === 'lawn') {
+            const area = obj.areaM2 || 0;
+            const rate = obj.waterRate || 25;
+            totalWeeklyLiters += area * rate;
+        }
+    });
+
+    const cisternVolume = window.cisternSize || 5000; 
+    const weeksRemaining = totalWeeklyLiters > 0 ? (cisternVolume / totalWeeklyLiters).toFixed(1) : '∞';
+    
+    const summaryEl = document.getElementById('global-water-summary');
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <h4>Zisternen-Check</h4>
+            <p>Gesamtbedarf: <strong>${totalWeeklyLiters} l / Woche</strong></p>
+            <p>Reichweite (${cisternVolume}L): ca. <strong>${weeksRemaining} Wochen</strong></p>
+        `;
+    }
+}
+
+// ==========================================
+// CANVAS MOUSE INTERAKTIONEN
+// ==========================================
 canvas.addEventListener('mousedown', (e) => {
-    if (e.button !== 0 && e.button !== 1) return; // Nur Links- oder Mittelklick
+    if (e.button !== 0 && e.button !== 1) return;
     const rect = canvas.getBoundingClientRect();
     const world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
 
@@ -127,15 +249,12 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
-    // 1. Maßstab ziehen (Mit Warnmeldung bei vorhandenen Objekten)
+    // 1. Maßstab ziehen
     if (currentTool === 'scale') {
         if (!scaleStartPoint) {
             if (objects.length > 0) {
                 const confirmChange = confirm("Achtung: Wenn du den Maßstab neu einstellst, verändern sich alle bisher gezeichneten Längen und Flächen! Möchtest du wirklich fortfahren?");
-                if (!confirmChange) {
-                    setTool('select');
-                    return;
-                }
+                if (!confirmChange) { setTool('select'); return; }
             }
             scaleStartPoint = world;
         } else {
@@ -146,8 +265,7 @@ canvas.addEventListener('mousedown', (e) => {
                 pixelsPerMeter = distPx / parseFloat(inputMeters);
                 document.getElementById('val-px-m').innerText = `${pixelsPerMeter.toFixed(1)} px/m`;
             }
-            scaleStartPoint = null;
-            scaleEndPoint = null;
+            scaleStartPoint = null; scaleEndPoint = null;
             setTool('select');
         }
         draw();
@@ -156,36 +274,30 @@ canvas.addEventListener('mousedown', (e) => {
 
     // 2. Kontrollmessung / Maßband
     if (currentTool === 'measure') {
-        if (!measureStartPoint) {
-            measureStartPoint = world;
-        } else {
-            measureStartPoint = null; // Zurücksetzen nach 2. Klick
-        }
+        if (!measureStartPoint) { measureStartPoint = world; } 
+        else { measureStartPoint = null; }
         draw();
         return;
     }
 
-    // 3. Flächen zeichnen (Rasen / Tropfzone)
+    // 3. Flächen zeichnen
     if (currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
-        // Auto-Snap zum ersten Punkt bei Annäherung zum Schließen der Fläche
         if (polygonPoints.length > 2) {
             const startP = polygonPoints[0];
             const distToStart = Math.hypot(world.x - startP.x, world.y - startP.y);
-            if (distToStart < (15 / scale)) {
-                finishPolygon();
-                return;
-            }
+            if (distToStart < (15 / scale)) { finishPolygon(); return; }
         }
         polygonPoints.push(world);
         draw(); 
         return;
     }
 
-    // 4. Tropfzonen 16mm Einspeisepunkt setzen
+    // 4. Tropfzonen 16mm Einspeisepunkt
     if (currentTool === 'add-drip-feed') {
         const feed = { type: 'drip-feed', x: world.x, y: world.y };
         objects.push(feed);
         selectedObj = feed;
+        updateSidebar(selectedObj);
         setTool('select');
         return;
     }
@@ -194,22 +306,24 @@ canvas.addEventListener('mousedown', (e) => {
     if (currentTool === 'add-sprinkler') {
         const model = getHunterModel(3.5, 180);
         const spr = { type: 'sprinkler', x: world.x, y: world.y, radius: 3.5, startAngle: 0, arc: 180, model: model.name, flow: model.flow };
-        objects.push(spr); selectedObj = spr; setTool('select'); return;
+        objects.push(spr); 
+        selectedObj = spr; 
+        updateSidebar(selectedObj);
+        setTool('select'); 
+        return;
     }
 
-    // 6. Select-Modus (Objekte / Knoten / Biegungen / Schraffierte Zwischenpunkte)
+    // 6. Select-Modus
     if (currentTool === 'select') {
         activeHandle = null;
 
-        // A. Flächen-Knotenpunkte, Biegungen & Schraffierte Zwischenpunkte (+)
-        if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip')) {
-            // Eckpunkt anklicken
+        // A. Flächen-Knotenpunkte & Zwischenpunkte (+)
+        if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip') && !selectedObj.locked) {
             const hitIdx = selectedObj.points.findIndex(p => Math.hypot(p.x - world.x, p.y - world.y) < (12 / scale));
             if (hitIdx !== -1) {
                 activeHandle = 'node-point'; activeNodeIndex = hitIdx; return;
             }
 
-            // Schraffierte Zwischenpunkte (+) anklicken -> Wandelt in echten Punkt um!
             if (typeof getEdgeAddPoints === 'function') {
                 const addPoints = getEdgeAddPoints(selectedObj.points);
                 const addHit = addPoints.find(ap => Math.hypot(ap.x - world.x, ap.y - world.y) < (12 / scale));
@@ -221,12 +335,6 @@ canvas.addEventListener('mousedown', (e) => {
                     return;
                 }
             }
-            
-            const mids = getPolygonMidpoints ? getPolygonMidpoints(selectedObj.points) : [];
-            const midHit = mids.find(m => Math.hypot(m.x - world.x, m.y - world.y) < (12 / scale));
-            if (midHit) {
-                activeHandle = 'curve-point'; activeNodeIndex = midHit.index; return;
-            }
         }
 
         // B. Regner-Handles prüfen
@@ -237,18 +345,20 @@ canvas.addEventListener('mousedown', (e) => {
             if (Math.hypot(h.radiusHandle.x - world.x, h.radiusHandle.y - world.y) < (12 / scale)) { activeHandle = 'radius'; return; }
         }
 
-        // C. Objekt-Auswahl (Regner, Einspeisungen, Quellen)
+        // C. Objekt-Auswahl
         selectedObj = objects.find(o => {
             if (o.type === 'sprinkler' || o.type === 'source' || o.type === 'drip-feed') return Math.hypot(o.x - world.x, o.y - world.y) < (18 / scale);
             return false;
         });
 
-        // D. Flächen-Auswahl
+        // D. Flächen-Auswahl (Gesperrte Flächen ignorieren, sofern andere klickbar sind)
         if (!selectedObj) {
-            selectedObj = objects.find(o => o.type === 'lawn' || o.type === 'drip');
+            selectedObj = objects.find(o => (o.type === 'lawn' || o.type === 'drip'));
         }
 
         if (selectedObj) activeHandle = 'center';
+        
+        updateSidebar(selectedObj);
         draw();
     }
 });
@@ -259,11 +369,13 @@ canvas.addEventListener('contextmenu', (e) => {
     const rect = canvas.getBoundingClientRect();
     const world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
 
-    if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip')) {
+    if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip') && !selectedObj.locked) {
         const hitIdx = selectedObj.points.findIndex(p => Math.hypot(p.x - world.x, p.y - world.y) < (12 / scale));
         if (hitIdx !== -1 && selectedObj.points.length > 3) {
             selectedObj.points.splice(hitIdx, 1);
+            updateSidebar(selectedObj);
             draw();
+            updateGlobalWaterBalance();
         }
     }
 });
@@ -271,10 +383,12 @@ canvas.addEventListener('contextmenu', (e) => {
 function finishPolygon() {
     if (polygonPoints.length > 2) {
         const type = currentTool === 'draw-lawn' ? 'lawn' : 'drip';
-        const newObj = { type: type, points: [...polygonPoints] };
+        const newObj = { type: type, points: [...polygonPoints], soilType: 'normal', waterRate: 25, locked: false };
         objects.push(newObj);
         selectedObj = newObj;
         polygonPoints = [];
+        updateSidebar(selectedObj);
+        updateGlobalWaterBalance();
         setTool('select');
     }
 }
@@ -289,21 +403,17 @@ canvas.addEventListener('mousemove', (e) => {
 
     currentMouseWorld = toWorld(screenX, screenY);
 
-    // Live-Update beim Zeichnen/Messen
     if (currentTool === 'scale' || currentTool === 'measure' || currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
         draw();
     }
 
     if (!selectedObj || !activeHandle) return;
 
-    if (activeHandle === 'node-point') {
+    if (activeHandle === 'node-point' && !selectedObj.locked) {
         selectedObj.points[activeNodeIndex].x = currentMouseWorld.x;
         selectedObj.points[activeNodeIndex].y = currentMouseWorld.y;
-        draw(); return;
-    }
-
-    if (activeHandle === 'curve-point') {
-        selectedObj.points[activeNodeIndex].controlPoint = { x: currentMouseWorld.x, y: currentMouseWorld.y };
+        updateSidebar(selectedObj);
+        updateGlobalWaterBalance();
         draw(); return;
     }
 
@@ -348,7 +458,7 @@ function draw() {
 
     if (bgImage) ctx.drawImage(bgImage, 0, 0);
 
-    // 1. Rasen/Tropfzonen & Einspeisepunkte zeichnen
+    // 1. Rasen/Tropfzonen zeichnen
     if (typeof drawPolygons === 'function') {
         drawPolygons(ctx, objects, scale, pixelsPerMeter, selectedObj);
     }
@@ -369,7 +479,6 @@ function draw() {
         ctx.lineWidth = 2 / scale;
         ctx.stroke();
 
-        // Marker Handles
         if (obj === selectedObj) {
             const h = getSprinklerHandles(obj, pixelsPerMeter);
             ctx.beginPath(); ctx.arc(h.startHandle.x, h.startHandle.y, 7 / scale, 0, Math.PI * 2); ctx.fillStyle = '#f1c40f'; ctx.fill();
@@ -394,7 +503,7 @@ function draw() {
         });
     }
 
-    // 4. Zeichne Maßstab-Ziehen-Linie
+    // 4. Maßstab-Linie
     if (currentTool === 'scale' && scaleStartPoint && currentMouseWorld) {
         ctx.beginPath();
         ctx.moveTo(scaleStartPoint.x, scaleStartPoint.y);
@@ -404,7 +513,7 @@ function draw() {
         ctx.stroke();
     }
 
-    // 5. Zeichne Kontrollmessungs-Linie / Maßband
+    // 5. Maßband
     if (currentTool === 'measure' && measureStartPoint && currentMouseWorld) {
         const distPx = Math.hypot(currentMouseWorld.x - measureStartPoint.x, currentMouseWorld.y - measureStartPoint.y);
         const distMeters = (distPx / pixelsPerMeter).toFixed(2);
@@ -426,7 +535,7 @@ function draw() {
     ctx.restore();
 }
 
-// Beim Start auf gespeicherten Link prüfen
+// Beim Start initialisieren
 window.onload = () => {
     if (typeof importFromLink === 'function') {
         const loadedData = importFromLink();
@@ -436,5 +545,6 @@ window.onload = () => {
             document.getElementById('val-px-m').innerText = `${pixelsPerMeter.toFixed(1)} px/m`;
         }
     }
+    updateGlobalWaterBalance();
     draw();
 };
