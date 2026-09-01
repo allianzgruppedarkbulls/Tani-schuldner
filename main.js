@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Erweitert um Tropfzonen-Modi & Disclaimer)
+// main.js - CAD Hauptsteuerung (Snapping, Echte Schlauch-Mäander & Durchgezeichneter Rahmen)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -150,7 +150,7 @@ function updateSidebar(obj) {
                     <p>Gesamtbedarf: <strong>${Math.round(totalWater)} l / Woche</strong></p>
                 </div>
                 <div style="margin-top:20px; padding:8px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:4px; font-size:11px; color:#fcd34d;">
-                    ℹ️ <strong>Hinweis:</strong> Alle Berechnungen und Pläne sind Richtwerte/Empfehlungen für die Installation. Bauliche Abweichungen vor Ort vorbehalten.
+                    ℹ️ <strong>Hinweis:</strong> Alle Berechnungen und Pläne sind unverbindliche Richtwerte/Empfehlungen für Material und Verlegung. Bauliche Abweichungen vor Ort vorbehalten.
                 </div>
             </div>`;
         return;
@@ -188,7 +188,7 @@ function updateSidebar(obj) {
         if (!obj.soilType) obj.soilType = 'normal';
         if (!obj.dripDistance) obj.dripDistance = 33; 
         if (!obj.waterRate) obj.waterRate = 20;
-        if (!obj.layoutMode) obj.layoutMode = 'loop'; // 'loop' oder 'frame'
+        if (!obj.layoutMode) obj.layoutMode = 'loop'; 
         if (obj.rotationAngle === undefined) obj.rotationAngle = 0;
         if (obj.points) obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
         const area = obj.areaM2 || 0;
@@ -253,12 +253,12 @@ function calculatePolygonArea(pts, pxm) {
 }
 
 // ==========================================
-// MOUSE & EVENTS
+// MOUSE & SNAPPING EVENTS
 // ==========================================
 canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0 && e.button !== 1) return;
     const rect = canvas.getBoundingClientRect();
-    const world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
+    let world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
 
     if (spacePressed || e.button === 1) {
         isPanning = true; startPanX = e.clientX - offsetX; startPanY = e.clientY - offsetY;
@@ -278,7 +278,18 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     if (currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
-        if (polygonPoints.length > 2 && Math.hypot(world.x - polygonPoints[0].x, world.y - polygonPoints[0].y) < (15 / scale)) {
+        // SNAPPING AN BESTEHENDE ECKPUNKTE
+        const snapRadius = 15 / scale;
+        for (let obj of objects) {
+            for (let pt of obj.points) {
+                if (Math.hypot(world.x - pt.x, world.y - pt.y) < snapRadius) {
+                    world = { x: pt.x, y: pt.y };
+                    break;
+                }
+            }
+        }
+
+        if (polygonPoints.length > 2 && Math.hypot(world.x - polygonPoints[0].x, world.y - polygonPoints[0].y) < snapRadius) {
             finishPolygon(); return;
         }
         polygonPoints.push(world);
@@ -329,10 +340,22 @@ canvas.addEventListener('dblclick', finishPolygon);
 
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
-    const world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
+    let world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
 
     if (isPanning) { offsetX = (e.clientX - rect.left) - startPanX; offsetY = (e.clientY - rect.top) - startPanY; draw(); return; }
     
+    if (currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
+        const snapRadius = 15 / scale;
+        for (let obj of objects) {
+            for (let pt of obj.points) {
+                if (Math.hypot(world.x - pt.x, world.y - pt.y) < snapRadius) {
+                    world = { x: pt.x, y: pt.y };
+                    break;
+                }
+            }
+        }
+    }
+
     if (activeHandleIndex !== -1 && selectedObj && !selectedObj.locked) {
         selectedObj.points[activeHandleIndex] = world;
         selectedObj.areaM2 = calculatePolygonArea(selectedObj.points, pixelsPerMeter);
@@ -407,7 +430,7 @@ function draw() {
             ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
             ctx.stroke();
 
-            // Innenlayout nach Modus ('loop' oder 'frame')
+            // Innenlayout (Schleife / Mäander oder durchgezeichneter Rahmen)
             ctx.save();
             let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
             let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
@@ -429,37 +452,75 @@ function draw() {
             let maxRotX = Math.max(...rotPoints.map(p => p.x));
 
             const spacingPx = (obj.dripDistance || 33) * (pixelsPerMeter / 100) * 1.5;
-            const insetMargin = obj.layoutMode === 'frame' ? (15 / scale + pixelsPerMeter * 0.15) : (5 / scale);
+            // Ausreichender Abstand zum Rand (ca. 25cm / 0.25m)
+            const edgeInset = pixelsPerMeter * 0.25;
 
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.5 / scale;
+            ctx.lineWidth = 1.8 / scale;
             ctx.beginPath();
 
-            for (let y = minRotY + spacingPx; y < maxRotY; y += spacingPx) {
+            let rows = [];
+            for (let y = minRotY + edgeInset; y <= maxRotY - edgeInset; y += spacingPx) {
                 let p1 = { x: minRotX - 100, y: y };
                 let p2 = { x: maxRotX + 100, y: y };
                 let xCoords = getLinePolygonIntersections(p1, p2, rotPoints);
 
-                for (let i = 0; i < xCoords.length - 1; i += 2) {
-                    let startX = xCoords[i] + insetMargin;
-                    let endX = xCoords[i+1] - insetMargin;
+                if (xCoords.length >= 2) {
+                    let startX = xCoords[0] + edgeInset;
+                    let endX = xCoords[xCoords.length - 1] - edgeInset;
                     if (startX < endX) {
-                        ctx.moveTo(startX, y);
-                        ctx.lineTo(endX, y);
-
-                        // Wenn 'frame' gewählt ist, zeichnen wir angedeutete T-Stücke/Verbinder an den Enden
-                        if (obj.layoutMode === 'frame') {
-                            ctx.moveTo(startX - 3/scale, y - 3/scale); ctx.lineTo(startX + 3/scale, y + 3/scale);
-                            ctx.moveTo(endX - 3/scale, y - 3/scale); ctx.lineTo(endX + 3/scale, y + 3/scale);
-                        }
+                        rows.push({ y: y, startX: startX, endX: endX });
                     }
                 }
             }
+
+            if (obj.layoutMode === 'loop' && rows.length > 0) {
+                // Echte Endlos-Schleife (Mäander mit U-Bögen abwechselnd links und rechts)
+                for (let i = 0; i < rows.length; i++) {
+                    let r = rows[i];
+                    if (i % 2 === 0) {
+                        ctx.moveTo(r.startX, r.y);
+                        ctx.lineTo(r.endX, r.y);
+                        if (i < rows.length - 1) {
+                            // Rechter U-Bogen zum nächsten
+                            let nextY = rows[i+1].y;
+                            ctx.arc(r.endX, (r.y + nextY)/2, (nextY - r.y)/2, -Math.PI/2, Math.PI/2, false);
+                        }
+                    } else {
+                        ctx.moveTo(r.endX, r.y);
+                        ctx.lineTo(r.startX, r.y);
+                        if (i < rows.length - 1) {
+                            // Linker U-Bogen zum nächsten
+                            let nextY = rows[i+1].y;
+                            ctx.arc(r.startX, (r.y + nextY)/2, (nextY - r.y)/2, Math.PI/2, 3*Math.PI/2, false);
+                        }
+                    }
+                }
+            } else if (obj.layoutMode === 'frame') {
+                // Umlaufender Rahmen + durchgehende Parallellinien mit echten T-Stücken
+                let frameMinX = Math.min(...rows.map(r => r.startX)) - 10/scale;
+                let frameMaxX = Math.max(...rows.map(r => r.endX)) + 10/scale;
+                let frameMinY = rows.length > 0 ? rows[0].y - 10/scale : minRotY;
+                let frameMaxY = rows.length > 0 ? rows[rows.length-1].y + 10/scale : maxRotY;
+
+                // Äußere Rahmenleitung
+                ctx.strokeRect(frameMinX, frameMinY, frameMaxX - frameMinX, frameMaxY - frameMinY);
+
+                // Parallele Innenlinien mit T-Stücken an den Anbindungen
+                rows.forEach(r => {
+                    ctx.moveTo(r.startX, r.y);
+                    ctx.lineTo(r.endX, r.y);
+                    // T-Stück Markierungen
+                    ctx.moveTo(r.startX - 3/scale, r.y - 3/scale); ctx.lineTo(r.startX + 3/scale, r.y + 3/scale);
+                    ctx.moveTo(r.endX - 3/scale, r.y - 3/scale); ctx.lineTo(r.endX + 3/scale, r.y + 3/scale);
+                });
+            }
+
             ctx.stroke();
             ctx.restore();
         }
 
-        // Zentrierter Text
+        // Zentrierter Text & Flächeninfo
         let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
         let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
         ctx.fillStyle = '#ffffff';
