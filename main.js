@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Präzises Schnittlinien-Clipping für Tropfzonen)
+// main.js - CAD Hauptsteuerung (Fehlerbehebung für das Zeichnen)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -336,7 +336,7 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => { isPanning = false; activeHandleIndex = -1; });
 
 // ==========================================
-// PRÄZISE SCHNITTBERECHNUNG FÜR TROPFBEFÜLLUNG
+// SCHNITTBERECHNUNG FÜR TROPFBEFÜLLUNG
 // ==========================================
 function getLinePolygonIntersections(p1, p2, polygon) {
     let intersections = [];
@@ -347,14 +347,13 @@ function getLinePolygonIntersections(p1, p2, polygon) {
         if (pt) intersections.push(pt.x);
     }
     intersections.sort((a, b) => a - b);
-    // Doppelte Schnittpunkte filtern
     return intersections.filter((val, index, arr) => index === 0 || Math.abs(val - arr[index - 1]) > 0.5);
 }
 
 function getIntersection(p1, p2, p3, p4) {
     let denom = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
     if (denom === 0) return null;
-    let ua =̀i = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denom;
+    let ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denom;
     let ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denom;
     if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
         return { x: p1.x + ua * (p2.x - p1.x), y: p1.y + ua * (p2.y - p1.y) };
@@ -406,7 +405,6 @@ function draw() {
             ctx.rotate(angleRad);
             ctx.translate(-cx, -cy);
 
-            // Lokales Polygon im rotierten Raum berechnen
             let cos = Math.cos(-angleRad), sin = Math.sin(-angleRad);
             let rotPoints = obj.points.map(p => ({
                 x: cx + (p.x - cx) * cos - (p.y - cy) * sin,
@@ -467,7 +465,7 @@ function draw() {
     if (polygonPoints.length > 0) {
         ctx.beginPath();
         ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-        polygonPoints.points?.forEach(p => ctx.lineTo(p.x, p.y));
+        polygonPoints.forEach(p => ctx.lineTo(p.x, p.y)); // Fehler behoben
         if (currentMouseWorld) ctx.lineTo(currentMouseWorld.x, currentMouseWorld.y);
         ctx.strokeStyle = '#f1c40f';
         ctx.lineWidth = 2 / scale;
