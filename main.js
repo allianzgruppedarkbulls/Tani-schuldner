@@ -8,6 +8,7 @@ let width = container.clientWidth;
 let height = container.clientHeight;
 canvas.width = width; canvas.height = height;
 
+
 let scale = 1.0, offsetX = 0, offsetY = 0;
 let isPanning = false, startPanX = 0, startPanY = 0, spacePressed = false;
 
