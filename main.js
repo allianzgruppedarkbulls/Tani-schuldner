@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Mit Rotationswinkel, Ringleitung & Eckpunkten)
+// main.js - CAD Hauptsteuerung (Präzises Schnittlinien-Clipping für Tropfzonen)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -20,7 +20,6 @@ let selectedObj = null;
 let activeHandleIndex = -1;
 
 let scaleStartPoint = null;
-let scaleEndPoint = null;
 let currentMouseWorld = null;
 
 function toWorld(sX, sY) { return { x: (sX - offsetX) / scale, y: (sY - offsetY) / scale }; }
@@ -110,7 +109,7 @@ if (deleteBtn) {
 }
 
 // ==========================================
-// SIDEBAR & WINKEL-STEUERUNG
+// SIDEBAR & STEUERUNG
 // ==========================================
 function updateSidebar(obj) {
     let sidebar = document.getElementById('sidebar-content') || document.getElementById('sidebar') || document.querySelector('.sidebar');
@@ -186,7 +185,7 @@ function updateSidebar(obj) {
         if (!obj.soilType) obj.soilType = 'normal';
         if (!obj.dripDistance) obj.dripDistance = 33; 
         if (!obj.waterRate) obj.waterRate = 20;
-        if (obj.rotationAngle === undefined) obj.rotationAngle = 0; // Gradzahl für Tropfmuster
+        if (obj.rotationAngle === undefined) obj.rotationAngle = 0;
         if (obj.points) obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
         const area = obj.areaM2 || 0;
         const weeklyWaterLiters = Math.round(area * obj.waterRate);
@@ -337,7 +336,34 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => { isPanning = false; activeHandleIndex = -1; });
 
 // ==========================================
-// ZEICHEN-LOOP MIT ROTIERTEM TROPFMUSTER
+// PRÄZISE SCHNITTBERECHNUNG FÜR TROPFBEFÜLLUNG
+// ==========================================
+function getLinePolygonIntersections(p1, p2, polygon) {
+    let intersections = [];
+    for (let i = 0; i < polygon.length; i++) {
+        let p3 = polygon[i];
+        let p4 = polygon[(i + 1) % polygon.length];
+        let pt = getIntersection(p1, p2, p3, p4);
+        if (pt) intersections.push(pt.x);
+    }
+    intersections.sort((a, b) => a - b);
+    // Doppelte Schnittpunkte filtern
+    return intersections.filter((val, index, arr) => index === 0 || Math.abs(val - arr[index - 1]) > 0.5);
+}
+
+function getIntersection(p1, p2, p3, p4) {
+    let denom = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+    if (denom === 0) return null;
+    let ua =̀i = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denom;
+    let ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denom;
+    if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+        return { x: p1.x + ua * (p2.x - p1.x), y: p1.y + ua * (p2.y - p1.y) };
+    }
+    return null;
+}
+
+// ==========================================
+// ZEICHEN-LOOP 
 // ==========================================
 function draw() {
     ctx.clearRect(0, 0, width, height);
@@ -365,50 +391,55 @@ function draw() {
             ctx.fillStyle = obj === selectedObj ? 'rgba(249, 115, 22, 0.45)' : 'rgba(249, 115, 22, 0.25)';
             ctx.fill();
 
-            ctx.save();
-            ctx.clip(); 
+            // Äußere Umrandung der Tropfzone
+            ctx.strokeStyle = obj === selectedObj ? '#f97316' : '#c2410c';
+            ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
+            ctx.stroke();
 
-            // Rotation anwenden (um den Mittelpunkt der Zone)
+            // Innenliegende Schläuche mit Rotations- und exaktem Kantenschnitt-Support
+            ctx.save();
             let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
             let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
             
             ctx.translate(cx, cy);
-            ctx.rotate((obj.rotationAngle || 0) * Math.PI / 180);
+            let angleRad = (obj.rotationAngle || 0) * Math.PI / 180;
+            ctx.rotate(angleRad);
             ctx.translate(-cx, -cy);
 
+            // Lokales Polygon im rotierten Raum berechnen
+            let cos = Math.cos(-angleRad), sin = Math.sin(-angleRad);
+            let rotPoints = obj.points.map(p => ({
+                x: cx + (p.x - cx) * cos - (p.y - cy) * sin,
+                y: cy + (p.x - cx) * sin + (p.y - cy) * cos
+            }));
+
+            let minRotY = Math.min(...rotPoints.map(p => p.y));
+            let maxRotY = Math.max(...rotPoints.map(p => p.y));
+            let minRotX = Math.min(...rotPoints.map(p => p.x));
+            let maxRotX = Math.max(...rotPoints.map(p => p.x));
+
             const spacingPx = (obj.dripDistance || 33) * (pixelsPerMeter / 100) * 1.5;
-            let minX = Math.min(...obj.points.map(p => p.x));
-            let maxX = Math.max(...obj.points.map(p => p.x));
-            let minY = Math.min(...obj.points.map(p => p.y));
-            let maxY = Math.max(...obj.points.map(p => p.y));
 
-            // Umlaufende Frischwasser-Ringleitung
-            ctx.strokeStyle = '#38bdf8';
-            ctx.lineWidth = 3 / scale;
-            ctx.strokeRect(minX + 8/scale, minY + 8/scale, (maxX - minX) - 16/scale, (maxY - minY) - 16/scale);
-
-            // Parallele Tropfschläuche im Inneren
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1.5 / scale;
             ctx.beginPath();
-            
-            for (let y = minY + 20; y <= maxY - 20; y += spacingPx) {
-                ctx.moveTo(minX + 12/scale, y);
-                ctx.lineTo(maxX - 12/scale, y);
 
-                ctx.save();
-                ctx.fillStyle = '#38bdf8';
-                ctx.fillRect(minX + 10/scale, y - 3/scale, 5/scale, 6/scale);
-                ctx.fillRect(maxX - 15/scale, y - 3/scale, 5/scale, 6/scale);
-                ctx.restore();
+            for (let y = minRotY + spacingPx; y < maxRotY; y += spacingPx) {
+                let p1 = { x: minRotX - 100, y: y };
+                let p2 = { x: maxRotX + 100, y: y };
+                let xCoords = getLinePolygonIntersections(p1, p2, rotPoints);
+
+                for (let i = 0; i < xCoords.length - 1; i += 2) {
+                    let startX = xCoords[i] + 5/scale;
+                    let endX = xCoords[i+1] - 5/scale;
+                    if (startX < endX) {
+                        ctx.moveTo(startX, y);
+                        ctx.lineTo(endX, y);
+                    }
+                }
             }
             ctx.stroke();
-            ctx.restore(); // Ende Clip & Rotation
-
-            // Äußere Polygon-Umrandung
-            ctx.strokeStyle = obj === selectedObj ? '#f97316' : '#c2410c';
-            ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
-            ctx.stroke();
+            ctx.restore();
         }
 
         // Zentrierter Text
@@ -436,7 +467,7 @@ function draw() {
     if (polygonPoints.length > 0) {
         ctx.beginPath();
         ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-        polygonPoints.forEach(p => ctx.lineTo(p.x, p.y));
+        polygonPoints.points?.forEach(p => ctx.lineTo(p.x, p.y));
         if (currentMouseWorld) ctx.lineTo(currentMouseWorld.x, currentMouseWorld.y);
         ctx.strokeStyle = '#f1c40f';
         ctx.lineWidth = 2 / scale;
