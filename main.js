@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Erweitert für Tropfzonen, Boden & Pflanzenbedarf)
+// main.js - CAD Hauptsteuerung (Mit echtem Deselect, Tropf-Schlauch-Visualisierung & flüssigem Wechsel)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -29,6 +29,11 @@ function toWorld(sX, sY) { return { x: (sX - offsetX) / scale, y: (sY - offsetY)
 
 window.addEventListener('keydown', (e) => { 
     if (e.code === 'Space') spacePressed = true; 
+    if (e.key === 'Escape') {
+        selectedObj = null;
+        updateSidebar(null);
+        draw();
+    }
     if (e.key === 'l' || e.key === 'L') {
         if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip')) {
             selectedObj.locked = !selectedObj.locked;
@@ -117,24 +122,48 @@ if (deleteBtn) {
 }
 
 // ==========================================
-// SIDEBAR & LIVE-BERECHNUNG (ERWEITERT)
+// SIDEBAR & GESAMTLISTE ALLER FLÄCHEN
 // ==========================================
 function updateSidebar(obj) {
     let sidebar = document.getElementById('sidebar-content') || document.getElementById('sidebar') || document.querySelector('.sidebar');
     if (!sidebar) return;
     let targetContainer = sidebar.id === 'sidebar-content' ? sidebar : (sidebar.querySelector('#sidebar-content') || sidebar);
 
+    // Generiere Gesamtübersicht aller Flächen für den Leerlauf
+    let allAreasList = '';
+    let totalWater = 0;
+    objects.forEach((o, index) => {
+        if (o.type === 'lawn' || o.type === 'drip') {
+            const area = o.areaM2 || 0;
+            const rate = o.waterRate || 25;
+            const subWater = Math.round(area * rate);
+            totalWater += subWater;
+            const icon = o.type === 'lawn' ? '🟩' : '💧';
+            const name = o.type === 'lawn' ? 'Rasenfläche' : 'Tropfzone';
+            allAreasList += `
+                <div onclick="selectObjectByIndex(${index})" style="padding:6px 8px; margin-bottom:4px; background:#1e293b; border-radius:4px; cursor:pointer; display:flex; justify-content:between; align-items:center; font-size:12px; border:1px solid ${o === selectedObj ? '#38bdf8' : 'transparent'};">
+                    <span>${icon} <strong>${name} #${index+1}</strong></span>
+                    <span style="color:#94a3b8;">${area} m² (${subWater} l/W)</span>
+                </div>`;
+        }
+    });
+
     if (!obj) {
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #cbd5e1;">
-                <h3 style="color: #fff; margin-bottom: 10px;">System-Status</h3>
-                <p>Maßstab: <span id="val-px-m">${pixelsPerMeter.toFixed(1)} px/m</span></p>
-                <p>Zoom: <span id="val-zoom">${Math.round(scale * 100)}%</span></p>
-                <hr style="border:0; border-top:1px solid #334155; margin: 15px 0;">
-                <p style="color: #94a3b8; text-align: center; margin-top: 20px;">Kein Objekt ausgewählt.<br>Klicke auf Rasen oder Tropfzonen.</p>
-                <div id="global-water-summary" style="margin-top: 20px;"></div>
+                <h3 style="color: #fff; margin-bottom: 10px;">Übersicht & Status</h3>
+                <p style="font-size:12px; color:#94a3b8;">Klicke auf eine Fläche im Plan oder in der Liste unten, um sie zu bearbeiten. (ESC zum Abwählen)</p>
+                <hr style="border:0; border-top:1px solid #334155; margin: 12px 0;">
+                <div style="max-height:180px; overflow-y:auto; margin-bottom:15px;">
+                    <p style="font-size:12px; font-weight:bold; color:#cbd5e1; margin-bottom:5px;">Erfasste Flächen (${objects.filter(o=>o.type==='lawn'||o.type==='drip').length}):</p>
+                    ${allAreasList || '<p style="font-size:12px; color:#64748b;">Noch keine Flächen gezeichnet.</p>'}
+                </div>
+                <hr style="border:0; border-top:1px solid #334155; margin: 12px 0;">
+                <div id="global-water-summary">
+                    <h4 style="color:#38bdf8; margin-bottom:5px;">Zisternen-Gesamtcheck</h4>
+                    <p>Gesamtbedarf: <strong>${Math.round(totalWater)} l / Woche</strong></p>
+                </div>
             </div>`;
-        updateGlobalWaterBalance();
         return;
     }
 
@@ -150,21 +179,24 @@ function updateSidebar(obj) {
 
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #fff;">
-                <h3 style="color: #38bdf8; margin-bottom: 10px;">🟩 Rasenfläche</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h3 style="color: #38bdf8; margin:0;">🟩 Rasenfläche</h3>
+                    <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;" title="Abwählen">✕</button>
+                </div>
                 <p><strong>Fläche:</strong> ${area} m²</p>
                 
                 <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Bodenart:</label>
                 <select id="soil-type-select" onchange="changeSoilType(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden (hoher Durchlässigkeit)</option>
+                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden</option>
                     <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (Standard)</option>
-                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden (speichert Feuchtigkeit)</option>
+                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden</option>
                 </select>
 
-                <label style="display:block; font-size:12px; color:#94a3b8;">Wasserbedarf (l/m²/Woche):</label>
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Wasserbedarf (l/m²/Woche):</label>
                 <input type="number" id="water-rate-input" value="${obj.waterRate}" onchange="changeWaterRate(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
 
                 <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
-                <p><strong>Wöchentlicher Bedarf:</strong> <span id="weekly-water-sum">${weeklyWaterLiters}</span> Liter</p>
+                <p><strong>Wöchentlicher Bedarf:</strong> ${weeklyWaterLiters} Liter</p>
                 
                 <button onclick="toggleLockSelected()" style="width:100%; padding:8px; margin-top:15px; background:#334155; color:#fff; border:none; border-radius:4px; cursor:pointer;">
                     ${obj.locked ? '🔓 Fläche entsperren' : '🔒 Fläche sperren'}
@@ -173,9 +205,9 @@ function updateSidebar(obj) {
         `;
     } else if (obj.type === 'drip') {
         if (!obj.soilType) obj.soilType = 'normal';
-        if (!obj.plantType) obj.plantType = 'normal'; // standard, low, high (z.B. Hortensien)
-        if (!obj.dripDistance) obj.dripDistance = 33; // cm
-        if (!obj.waterRate) obj.waterRate = 20; // l/m²/Woche basis
+        if (!obj.plantType) obj.plantType = 'normal';
+        if (!obj.dripDistance) obj.dripDistance = 33; 
+        if (!obj.waterRate) obj.waterRate = 20;
 
         if (typeof calculatePolygonArea === 'function' && obj.points) {
             obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
@@ -185,29 +217,31 @@ function updateSidebar(obj) {
 
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #fff;">
-                <h3 style="color: #fb923c; margin-bottom: 10px;">💧 Tropfzone (Pflanzen)</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h3 style="color: #fb923c; margin:0;">💧 Tropfzone</h3>
+                    <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;" title="Abwählen">✕</button>
+                </div>
                 <p><strong>Fläche:</strong> ${area} m²</p>
                 
                 <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Bodenart:</label>
                 <select id="drip-soil-select" onchange="changeDripSoil(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden (schnell trocken)</option>
+                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden</option>
                     <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (Standard)</option>
-                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden (Achtung Staunässe!)</option>
+                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden</option>
                 </select>
 
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Pflanzentyp / Wasserbedarf:</label>
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Pflanzentyp:</label>
                 <select id="drip-plant-select" onchange="changeDripPlant(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="low" ${obj.plantType === 'low' ? 'selected' : ''}>Wenig Wasser (z.B. Lavendel, Steingarten)</option>
-                    <option value="normal" ${obj.plantType === 'normal' ? 'selected' : ''}>Normaler Bedarf (Sträucher, Hecken)</option>
-                    <option value="high" ${obj.plantType === 'high' ? 'selected' : ''}>Sehr hohem Bedarf (z.B. Hortensien, Stauden)</option>
+                    <option value="low" ${obj.plantType === 'low' ? 'selected' : ''}>Wenig Wasser (Lavendel etc.)</option>
+                    <option value="normal" ${obj.plantType === 'normal' ? 'selected' : ''}>Normaler Bedarf (Hecken)</option>
+                    <option value="high" ${obj.plantType === 'high' ? 'selected' : ''}>Hoher Bedarf (Hortensien)</option>
                 </select>
 
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand im Rohr:</label>
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand:</label>
                 <select id="drip-dist-select" onchange="changeDripDistance(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (eng bei sandigem Boden)</option>
-                    <option value="30" ${obj.dripDistance == 30 ? 'selected' : ''}>30 cm (Standard)</option>
+                    <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (Eng)</option>
                     <option value="33" ${obj.dripDistance == 33 ? 'selected' : ''}>33 cm (Standard)</option>
-                    <option value="50" ${obj.dripDistance == 50 ? 'selected' : ''}>50 cm (weit bei Lehm / geringer Bedarf)</option>
+                    <option value="50" ${obj.dripDistance == 50 ? 'selected' : ''}>50 cm (Weit)</option>
                 </select>
 
                 <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
@@ -218,15 +252,20 @@ function updateSidebar(obj) {
                 </button>
             </div>
         `;
-    } else if (obj.type === 'sprinkler') {
-        targetContainer.innerHTML = `
-            <div style="padding: 15px; color: #fff;">
-                <h3 style="color: #38bdf8; margin-bottom: 10px;">💦 Regner (${obj.model})</h3>
-                <p><strong>Reichweite:</strong> ${obj.radius} m</p>
-                <p><strong>Winkel:</strong> ${obj.arc}°</p>
-                <p><strong>Durchfluss:</strong> ${obj.flow} m³/h</p>
-            </div>
-        `;
+    }
+}
+
+function deselectCurrent() {
+    selectedObj = null;
+    updateSidebar(null);
+    draw();
+}
+
+function selectObjectByIndex(index) {
+    if (objects[index]) {
+        selectedObj = objects[index];
+        updateSidebar(selectedObj);
+        draw();
     }
 }
 
@@ -236,14 +275,14 @@ function changeSoilType(type) {
     const soilRates = { sand: 32, normal: 25, clay: 18 };
     selectedObj.waterRate = soilRates[type];
     updateSidebar(selectedObj);
-    updateGlobalWaterBalance();
+    draw();
 }
 
 function changeWaterRate(val) {
     if (!selectedObj || selectedObj.type !== 'lawn') return;
     selectedObj.waterRate = parseFloat(val) || 0;
     updateSidebar(selectedObj);
-    updateGlobalWaterBalance();
+    draw();
 }
 
 function changeDripSoil(type) {
@@ -255,11 +294,9 @@ function changeDripSoil(type) {
 function changeDripPlant(type) {
     if (!selectedObj || selectedObj.type !== 'drip') return;
     selectedObj.plantType = type;
-    // Automatischen Tropferabstand je nach Pflanze/Boden vorschlagen
     if (type === 'high') selectedObj.dripDistance = 20;
     else if (type === 'low') selectedObj.dripDistance = 50;
     else selectedObj.dripDistance = 33;
-    
     updateDripWaterCalculation();
 }
 
@@ -267,17 +304,15 @@ function changeDripDistance(val) {
     if (!selectedObj || selectedObj.type !== 'drip') return;
     selectedObj.dripDistance = parseInt(val);
     updateSidebar(selectedObj);
+    draw();
 }
 
 function updateDripWaterCalculation() {
     if (!selectedObj || selectedObj.type !== 'drip') return;
-    // Multiplikatoren für Pflanzentyp
     const plantMultipliers = { low: 0.6, normal: 1.0, high: 1.5 };
-    const baseRate = 20; // l/m² standard
-    selectedObj.waterRate = baseRate * (plantMultipliers[selectedObj.plantType] || 1.0);
-    
+    selectedObj.waterRate = 20 * (plantMultipliers[selectedObj.plantType] || 1.0);
     updateSidebar(selectedObj);
-    updateGlobalWaterBalance();
+    draw();
 }
 
 function toggleLockSelected() {
@@ -288,23 +323,7 @@ function toggleLockSelected() {
 }
 
 function updateGlobalWaterBalance() {
-    let totalWeeklyLiters = 0;
-    objects.forEach(obj => {
-        if (obj.type === 'lawn' || obj.type === 'drip') {
-            totalWeeklyLiters += (obj.areaM2 || 0) * (obj.waterRate || 25);
-        }
-    });
-    const cisternVolume = window.cisternSize || 5000; 
-    const weeksRemaining = totalWeeklyLiters > 0 ? (cisternVolume / totalWeeklyLiters).toFixed(1) : '∞';
-    
-    const summaryEl = document.getElementById('global-water-summary');
-    if (summaryEl) {
-        summaryEl.innerHTML = `
-            <h4 style="color:#38bdf8; margin-bottom:5px;">Zisternen-Gesamtcheck</h4>
-            <p>Gesamtbedarf: <strong>${Math.round(totalWeeklyLiters)} l / Woche</strong></p>
-            <p>Reichweite (${cisternVolume}L): ca. <strong>${weeksRemaining} Wochen</strong></p>
-        `;
-    }
+    updateSidebar(selectedObj);
 }
 
 // ==========================================
@@ -321,9 +340,8 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     if (currentTool === 'scale') {
-        if (!scaleStartPoint) {
-            scaleStartPoint = world;
-        } else {
+        if (!scaleStartPoint) { scaleStartPoint = world; } 
+        else {
             scaleEndPoint = world;
             const distPx = Math.hypot(scaleEndPoint.x - scaleStartPoint.x, scaleEndPoint.y - scaleStartPoint.y);
             const inputMeters = prompt("Wie lang ist diese gezogene Strecke in Metern?", "5");
@@ -357,51 +375,39 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
-    if (currentTool === 'add-drip-feed') {
-        const feed = { type: 'drip-feed', x: world.x, y: world.y };
-        objects.push(feed);
-        selectedObj = feed;
-        updateSidebar(selectedObj);
-        setTool('select');
-        return;
-    }
-
-    if (currentTool === 'add-sprinkler') {
-        const model = typeof getHunterModel === 'function' ? getHunterModel(3.5, 180) : { name: 'Rotator', flow: 0.2 };
-        const spr = { type: 'sprinkler', x: world.x, y: world.y, radius: 3.5, startAngle: 0, arc: 180, model: model.name, flow: model.flow };
-        objects.push(spr); 
-        selectedObj = spr; 
-        updateSidebar(selectedObj);
-        setTool('select'); 
-        return;
-    }
-
     if (currentTool === 'select') {
         activeHandle = null;
 
-        if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'drip') && !selectedObj.locked) {
-            const hitIdx = selectedObj.points.findIndex(p => Math.hypot(p.x - world.x, p.y - world.y) < (12 / scale));
-            if (hitIdx !== -1) {
-                activeHandle = 'node-point'; activeNodeIndex = hitIdx; return;
-            }
-        }
-
-        selectedObj = objects.find(o => {
-            if (o.type === 'sprinkler' || o.type === 'source' || o.type === 'drip-feed') {
-                return Math.hypot(o.x - world.x, o.y - world.y) < (18 / scale);
-            }
-            return false;
+        // Prüfen, ob direkt auf ein Polygon geklickt wurde
+        const clickedObj = objects.slice().reverse().find(o => {
+            if (o.type !== 'lawn' && o.type !== 'drip') return false;
+            return isPointInPolygon(world, o.points);
         });
 
-        if (!selectedObj) {
-            selectedObj = objects.find(o => (o.type === 'lawn' || o.type === 'drip'));
+        if (clickedObj) {
+            selectedObj = clickedObj;
+        } else {
+            // Klick ins Leere -> Deselect
+            selectedObj = null;
         }
 
-        if (selectedObj) activeHandle = 'center';
         updateSidebar(selectedObj);
         draw();
     }
 });
+
+// Hilfsfunktion: Punkt-in-Polygon Erkennung für exakten Klick
+function isPointInPolygon(point, vs) {
+    let x = point.x, y = point.y;
+    let inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        let xi = vs[i].x, yi = vs[i].y;
+        let xj = vs[j].x, yj = vs[j].y;
+        let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
 
 function finishPolygon() {
     if (polygonPoints.length > 2) {
@@ -419,7 +425,6 @@ function finishPolygon() {
         selectedObj = newObj;
         polygonPoints = [];
         updateSidebar(selectedObj);
-        updateGlobalWaterBalance();
         setTool('select');
     }
 }
@@ -436,20 +441,13 @@ canvas.addEventListener('mousemove', (e) => {
     if (currentTool === 'scale' || currentTool === 'measure' || currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
         draw();
     }
-
-    if (!selectedObj || !activeHandle) return;
-
-    if (activeHandle === 'node-point' && !selectedObj.locked) {
-        selectedObj.points[activeNodeIndex].x = currentMouseWorld.x;
-        selectedObj.points[activeNodeIndex].y = currentMouseWorld.y;
-        updateSidebar(selectedObj);
-        updateGlobalWaterBalance();
-        draw(); return;
-    }
 });
 
 canvas.addEventListener('mouseup', () => { isPanning = false; activeHandle = null; });
 
+// ==========================================
+// ZEICHEN-LOOP MIT OPTISCHEN TROPFSCHLÄUCHEN
+// ==========================================
 function draw() {
     ctx.clearRect(0, 0, width, height);
     ctx.save();
@@ -458,9 +456,63 @@ function draw() {
 
     if (bgImage) ctx.drawImage(bgImage, 0, 0);
 
-    if (typeof drawPolygons === 'function') {
-        drawPolygons(ctx, objects, scale, pixelsPerMeter, selectedObj);
-    }
+    // Alle Objekte (Rasen & Tropfzonen) zeichnen
+    objects.forEach(obj => {
+        if (!obj.points || obj.points.length < 3) return;
+
+        ctx.beginPath();
+        ctx.moveTo(obj.points[0].x, obj.points[0].y);
+        for (let i = 1; i < obj.points.length; i++) {
+            ctx.lineTo(obj.points[i].x, obj.points[i].y);
+        }
+        ctx.closePath();
+
+        if (obj.type === 'lawn') {
+            ctx.fillStyle = obj === selectedObj ? 'rgba(34, 197, 94, 0.45)' : 'rgba(34, 197, 94, 0.25)';
+            ctx.fill();
+            ctx.strokeStyle = obj === selectedObj ? '#22c55e' : '#16a34a';
+        } else if (obj.type === 'drip') {
+            ctx.fillStyle = obj === selectedObj ? 'rgba(249, 115, 22, 0.45)' : 'rgba(249, 115, 22, 0.25)';
+            ctx.fill();
+            ctx.strokeStyle = obj === selectedObj ? '#f97316' : '#c2410c';
+
+            // OPTISCHE TROPFSCHLÄUCHE (Mäanderlinien im Inneren)
+            ctx.save();
+            ctx.clip(); // Nur innerhalb des Polygons zeichnen
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 1.5 / scale;
+            
+            // Abstand der Schläuche basierend auf Tropferabstand (z.B. 20cm = enge Linien, 50cm = weiter)
+            const spacingPx = (obj.dripDistance || 33) * (pixelsPerMeter / 100) * 1.5;
+            
+            // Bounding Box ermitteln
+            let minX = Math.min(...obj.points.map(p => p.x));
+            let maxX = Math.max(...obj.points.map(p => p.x));
+            let minY = Math.min(...obj.points.map(p => p.y));
+            let maxY = Math.max(...obj.points.map(p => p.y));
+
+            ctx.beginPath();
+            for (let y = minY; y <= maxY; y += spacingPx) {
+                ctx.moveTo(minX, y);
+                ctx.lineTo(maxX, y);
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
+        ctx.stroke();
+
+        // Zentrum-Info Text
+        let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
+        let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${12 / scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        const label = obj.type === 'lawn' ? 'Rasen' : 'Tropfzone';
+        ctx.fillText(`${label}: ${obj.areaM2 || 0} m²`, cx, cy);
+    });
 
     if (polygonPoints.length > 0) {
         ctx.beginPath();
@@ -470,35 +522,12 @@ function draw() {
         ctx.strokeStyle = '#f1c40f';
         ctx.lineWidth = 2 / scale;
         ctx.stroke();
-
-        polygonPoints.forEach(p => {
-            ctx.beginPath(); ctx.arc(p.x, p.y, 4 / scale, 0, Math.PI * 2);
-            ctx.fillStyle = '#f1c40f'; ctx.fill();
-        });
-    }
-
-    if (currentTool === 'scale' && scaleStartPoint && currentMouseWorld) {
-        ctx.beginPath();
-        ctx.moveTo(scaleStartPoint.x, scaleStartPoint.y);
-        ctx.lineTo(currentMouseWorld.x, currentMouseWorld.y);
-        ctx.strokeStyle = '#e74c3c';
-        ctx.lineWidth = 3 / scale;
-        ctx.stroke();
     }
 
     ctx.restore();
 }
 
 window.onload = () => {
-    if (typeof importFromLink === 'function') {
-        const loadedData = importFromLink();
-        if (loadedData) {
-            pixelsPerMeter = loadedData.ppm || 20;
-            objects = loadedData.objs || [];
-            const pxmEl = document.getElementById('val-px-m');
-            if(pxmEl) pxmEl.innerText = `${pixelsPerMeter.toFixed(1)} px/m`;
-        }
-    }
     updateSidebar(null);
     draw();
 };
