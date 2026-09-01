@@ -36,14 +36,26 @@ container.addEventListener('wheel', (e) => {
     draw();
 });
 
-// Bild-Upload
+// Bild-Upload mit automatischer Skalierung & Zentrierung
 document.getElementById('img-upload').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
         bgImage = new Image();
-        bgImage.onload = () => draw();
+        bgImage.onload = () => {
+            // Berechne passenden Zoom, damit das Bild komplett auf den Canvas passt
+            const scaleX = (width * 0.8) / bgImage.width;
+            const scaleY = (height * 0.8) / bgImage.height;
+            scale = Math.min(scaleX, scaleY);
+
+            // Zentriere das Bild auf der Arbeitsfläche
+            offsetX = (width - bgImage.width * scale) / 2;
+            offsetY = (height - bgImage.height * scale) / 2;
+
+            document.getElementById('val-zoom').innerText = `${Math.round(scale * 100)}%`;
+            draw();
+        };
         bgImage.src = event.target.result;
     };
     reader.readAsDataURL(file);
