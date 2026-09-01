@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Fehlerbehebung für das Zeichnen)
+// main.js - CAD Hauptsteuerung (Erweitert um Tropfzonen-Modi & Disclaimer)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -138,7 +138,7 @@ function updateSidebar(obj) {
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #cbd5e1;">
                 <h3 style="color: #fff; margin-bottom: 10px;">Übersicht & Status</h3>
-                <p style="font-size:12px; color:#94a3b8;">Klicke auf eine Fläche, um Punkte oder Winkel anzupassen. (ESC zum Abwählen)</p>
+                <p style="font-size:12px; color:#94a3b8;">Klicke auf eine Fläche, um Details anzupassen. (ESC zum Abwählen)</p>
                 <hr style="border:0; border-top:1px solid #334155; margin: 12px 0;">
                 <div style="max-height:180px; overflow-y:auto; margin-bottom:15px;">
                     <p style="font-size:12px; font-weight:bold; color:#cbd5e1; margin-bottom:5px;">Erfasste Flächen (${objects.filter(o=>o.type==='lawn'||o.type==='drip').length}):</p>
@@ -148,6 +148,9 @@ function updateSidebar(obj) {
                 <div>
                     <h4 style="color:#38bdf8; margin-bottom:5px;">Zisternen-Gesamtcheck</h4>
                     <p>Gesamtbedarf: <strong>${Math.round(totalWater)} l / Woche</strong></p>
+                </div>
+                <div style="margin-top:20px; padding:8px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:4px; font-size:11px; color:#fcd34d;">
+                    ℹ️ <strong>Hinweis:</strong> Alle Berechnungen und Pläne sind Richtwerte/Empfehlungen für die Installation. Bauliche Abweichungen vor Ort vorbehalten.
                 </div>
             </div>`;
         return;
@@ -185,6 +188,7 @@ function updateSidebar(obj) {
         if (!obj.soilType) obj.soilType = 'normal';
         if (!obj.dripDistance) obj.dripDistance = 33; 
         if (!obj.waterRate) obj.waterRate = 20;
+        if (!obj.layoutMode) obj.layoutMode = 'loop'; // 'loop' oder 'frame'
         if (obj.rotationAngle === undefined) obj.rotationAngle = 0;
         if (obj.points) obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
         const area = obj.areaM2 || 0;
@@ -197,6 +201,13 @@ function updateSidebar(obj) {
                     <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
                 </div>
                 <p><strong>Fläche:</strong> ${area} m²</p>
+                
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Verlegemodus:</label>
+                <select id="drip-mode-select" onchange="changeDripLayoutMode(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
+                    <option value="loop" ${obj.layoutMode === 'loop' ? 'selected' : ''}>Schleife / Schlenker (Mäander)</option>
+                    <option value="frame" ${obj.layoutMode === 'frame' ? 'selected' : ''}>Beet-Rahmen + T-Stücke & Linien</option>
+                </select>
+
                 <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand:</label>
                 <select id="drip-dist-select" onchange="changeDripDistance(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
                     <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (Eng)</option>
@@ -221,6 +232,7 @@ function selectObjectByIndex(index) { if (objects[index]) { selectedObj = object
 function changeSoilType(type) { if (!selectedObj) return; selectedObj.soilType = type; updateSidebar(selectedObj); draw(); }
 function changeWaterRate(val) { if (!selectedObj) return; selectedObj.waterRate = parseFloat(val) || 0; updateSidebar(selectedObj); draw(); }
 function changeDripDistance(val) { if (!selectedObj) return; selectedObj.dripDistance = parseInt(val); updateSidebar(selectedObj); draw(); }
+function changeDripLayoutMode(mode) { if (!selectedObj) return; selectedObj.layoutMode = mode; updateSidebar(selectedObj); draw(); }
 function changeDripRotation(val) { 
     if (!selectedObj) return; 
     selectedObj.rotationAngle = parseInt(val) || 0; 
@@ -304,7 +316,7 @@ function isPointInPolygon(point, vs) {
 function finishPolygon() {
     if (polygonPoints.length > 2) {
         const type = currentTool === 'draw-lawn' ? 'lawn' : 'drip';
-        const newObj = { type, points: [...polygonPoints], soilType: 'normal', dripDistance: 33, waterRate: type === 'lawn' ? 25 : 20, rotationAngle: 0, locked: false };
+        const newObj = { type, points: [...polygonPoints], soilType: 'normal', dripDistance: 33, waterRate: type === 'lawn' ? 25 : 20, layoutMode: 'loop', rotationAngle: 0, locked: false };
         objects.push(newObj);
         selectedObj = newObj;
         polygonPoints = [];
@@ -336,7 +348,7 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => { isPanning = false; activeHandleIndex = -1; });
 
 // ==========================================
-// SCHNITTBERECHNUNG FÜR TROPFBEFÜLLUNG
+// SCHNITTBERECHNUNG
 // ==========================================
 function getLinePolygonIntersections(p1, p2, polygon) {
     let intersections = [];
@@ -395,7 +407,7 @@ function draw() {
             ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
             ctx.stroke();
 
-            // Innenliegende Schläuche mit Rotations- und exaktem Kantenschnitt-Support
+            // Innenlayout nach Modus ('loop' oder 'frame')
             ctx.save();
             let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
             let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
@@ -417,6 +429,7 @@ function draw() {
             let maxRotX = Math.max(...rotPoints.map(p => p.x));
 
             const spacingPx = (obj.dripDistance || 33) * (pixelsPerMeter / 100) * 1.5;
+            const insetMargin = obj.layoutMode === 'frame' ? (15 / scale + pixelsPerMeter * 0.15) : (5 / scale);
 
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1.5 / scale;
@@ -428,11 +441,17 @@ function draw() {
                 let xCoords = getLinePolygonIntersections(p1, p2, rotPoints);
 
                 for (let i = 0; i < xCoords.length - 1; i += 2) {
-                    let startX = xCoords[i] + 5/scale;
-                    let endX = xCoords[i+1] - 5/scale;
+                    let startX = xCoords[i] + insetMargin;
+                    let endX = xCoords[i+1] - insetMargin;
                     if (startX < endX) {
                         ctx.moveTo(startX, y);
                         ctx.lineTo(endX, y);
+
+                        // Wenn 'frame' gewählt ist, zeichnen wir angedeutete T-Stücke/Verbinder an den Enden
+                        if (obj.layoutMode === 'frame') {
+                            ctx.moveTo(startX - 3/scale, y - 3/scale); ctx.lineTo(startX + 3/scale, y + 3/scale);
+                            ctx.moveTo(endX - 3/scale, y - 3/scale); ctx.lineTo(endX + 3/scale, y + 3/scale);
+                        }
                     }
                 }
             }
@@ -465,7 +484,7 @@ function draw() {
     if (polygonPoints.length > 0) {
         ctx.beginPath();
         ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-        polygonPoints.forEach(p => ctx.lineTo(p.x, p.y)); // Fehler behoben
+        polygonPoints.forEach(p => ctx.lineTo(p.x, p.y));
         if (currentMouseWorld) ctx.lineTo(currentMouseWorld.x, currentMouseWorld.y);
         ctx.strokeStyle = '#f1c40f';
         ctx.lineWidth = 2 / scale;
