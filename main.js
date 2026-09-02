@@ -59,6 +59,14 @@ window.updateSystemMeta = function(prop, val) {
     draw();
 };
 
+window.updateSprinklerProp = function(prop, val) {
+    if (State.selectedObj && State.selectedObj.type === 'sprinkler') {
+        State.selectedObj[prop] = val;
+        updateSidebar(State.selectedObj);
+        draw();
+    }
+};
+
 window.changeDripLayoutMode = function(mode) {
     if (State.selectedObj && State.selectedObj.type === 'drip') {
         State.selectedObj.layoutMode = mode;
