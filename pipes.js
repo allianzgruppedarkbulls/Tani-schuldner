@@ -9,7 +9,7 @@ function createPipe(points) {
     };
 }
 
-function drawPipe(ctx, obj, scale, isSelected) {
+export function drawPipe(ctx, obj, scale, isSelected) {
     if (!obj.points || obj.points.length < 2) return;
     ctx.beginPath();
     ctx.moveTo(obj.points[0].x, obj.points[0].y);
