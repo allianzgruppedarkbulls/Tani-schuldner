@@ -1,33 +1,37 @@
 // state.js - Verwaltung des globalen Anwendungsstatus
-
-const state = {
+export const State = {
     objects: [],          // Alle gezeichneten Elemente (Rasen, Regner, Rohre, Tropfzonen)
     selectedObj: null,    // Aktuell ausgewähltes Objekt
     currentTool: 'select',// Aktives Werkzeug (z.B. 'select', 'lawn', 'sprinkler', 'pipe', 'drip')
     pixelsPerMeter: 20,   // Maßstab: Pixel pro Meter
     gridSize: 1,          // Rastergröße in Metern
     showGrid: true,       // Raster anzeigen ja/nein
-    backgroundImg: null   // Hintergrundbild (z.B. Plan/Skizze)
+    backgroundImg: null,  // Hintergrundbild (z.B. Plan/Skizze)
+    systemMeta: {
+        hasCistern: false,
+        cisternVolume: 5000,
+        pumpType: 'standard_3m3'
+    }
 };
 
-function addObject(obj) {
-    state.objects.push(obj);
+export function addObject(obj) {
+    State.objects.push(obj);
 }
 
-function removeObject(obj) {
-    const index = state.objects.indexOf(obj);
+export function removeObject(obj) {
+    const index = State.objects.indexOf(obj);
     if (index > -1) {
-        state.objects.splice(index, 1);
-        if (state.selectedObj === obj) {
-            state.selectedObj = null;
+        State.objects.splice(index, 1);
+        if (State.selectedObj === obj) {
+            State.selectedObj = null;
             if (typeof closeSidebar === 'function') closeSidebar();
         }
     }
 }
 
-function clearState() {
-    state.objects = [];
-    state.selectedObj = null;
+export function clearState() {
+    State.objects = [];
+    State.selectedObj = null;
     if (typeof closeSidebar === 'function') closeSidebar();
     if (typeof draw === 'function') draw();
 }
