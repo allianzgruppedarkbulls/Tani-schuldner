@@ -28,6 +28,12 @@ export function updateSidebar(obj) {
                     <span>⛔ <strong>Totzone #${index+1}</strong></span>
                     <span style="color:#94a3b8;">${o.areaM2 || 0} m²</span>
                 </div>`;
+        } else if (o.type === 'sprinkler') {
+            allAreasList += `
+                <div onclick="window.selectObjectByIndex(${index})" style="padding:6px 8px; margin-bottom:4px; background:#1e293b; border-radius:4px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; font-size:12px; border:1px solid ${o === State.selectedObj ? '#38bdf8' : 'transparent'};">
+                    <span>💧 <strong>${o.name || 'Regner'} #${index+1}</strong></span>
+                    <span style="color:#94a3b8;">${o.model || 'MP1000'}</span>
+                </div>`;
         }
     });
 
@@ -56,8 +62,8 @@ export function updateSidebar(obj) {
 
                 <hr style="border:0; border-top:1px solid #334155; margin: 12px 0;">
                 <div style="max-height:160px; overflow-y:auto; margin-bottom:15px;">
-                    <p style="font-size:12px; font-weight:bold; color:#cbd5e1; margin-bottom:5px;">Erfasste Zonen:</p>
-                    ${allAreasList || '<p style="font-size:12px; color:#64748b;">Noch keine Flächen gezeichnet.</p>'}
+                    <p style="font-size:12px; font-weight:bold; color:#cbd5e1; margin-bottom:5px;">Erfasste Zonen & Bauteile:</p>
+                    ${allAreasList || '<p style="font-size:12px; color:#64748b;">Noch keine Elemente gezeichnet.</p>'}
                 </div>
 
                 <hr style="border:0; border-top:1px solid #334155; margin: 12px 0;">
@@ -77,8 +83,61 @@ export function updateSidebar(obj) {
         return;
     }
 
-    // Detailansicht für ausgewähltes Objekt
     const isLocked = obj.locked !== false;
+
+    // Detailansicht für Regner
+    if (obj.type === 'sprinkler') {
+        targetContainer.innerHTML = `
+            <div style="padding: 15px; color: #fff;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h3 style="color: #3b82f6; margin:0;">💧 Regner (MP Rotator)</h3>
+                    <button onclick="window.deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
+                </div>
+                
+                <label style="font-size:11px; color:#94a3b8;">Bezeichnung / Name:</label>
+                <input type="text" value="${obj.name || ''}" onchange="window.updateSprinklerProp('name', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
+
+                <label style="font-size:11px; color:#94a3b8;">Modell:</label>
+                <select onchange="window.updateSprinklerProp('model', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
+                    <option value="MP800" ${obj.model === 'MP800' ? 'selected' : ''}>MP 800 (2.5 - 4.6 m)</option>
+                    <option value="MP1000" ${obj.model === 'MP1000' || !obj.model ? 'selected' : ''}>MP 1000 (2.5 - 4.5 m)</option>
+                    <option value="MP2000" ${obj.model === 'MP2000' ? 'selected' : ''}>MP 2000 (4.0 - 6.4 m)</option>
+                    <option value="MP3000" ${obj.model === 'MP3000' ? 'selected' : ''}>MP 3000 (6.7 - 9.1 m)</option>
+                </select>
+
+                <div style="display:flex; gap:10px; margin-bottom:8px;">
+                    <div style="flex:1;">
+                        <label style="font-size:11px; color:#94a3b8;">Wurfweite (m):</label>
+                        <input type="number" step="0.1" value="${obj.radius || 3.5}" onchange="window.updateSprinklerProp('radius', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:11px; color:#94a3b8;">Öffnung (°):</label>
+                        <input type="number" step="5" value="${obj.arc || 90}" onchange="window.updateSprinklerProp('arc', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-bottom:12px;">
+                    <div style="flex:1;">
+                        <label style="font-size:11px; color:#94a3b8;">Ausrichtung (°):</label>
+                        <input type="number" step="5" value="${obj.angle || 0}" onchange="window.updateSprinklerProp('angle', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:11px; color:#94a3b8;">Wasserbedarf (m³/h):</label>
+                        <input type="number" step="0.01" value="${obj.rate || 0.1}" onchange="window.updateSprinklerProp('rate', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                    </div>
+                </div>
+
+                <label style="font-size:11px; color:#94a3b8;">Rohrleitung / Strang:</label>
+                <input type="text" value="${obj.strang || 'Nicht zugewiesen'}" disabled style="width:100%; padding:6px; background:#0f172a; border:1px solid #334155; color:#94a3b8; border-radius:4px; margin-bottom:12px;">
+
+                <button onclick="window.toggleLockSelected()" style="width:100%; padding:8px; background:${isLocked ? '#334155' : '#0284c7'}; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">
+                    ${isLocked ? '🔒 Verbunden (Klick zum Entsperren)' : '🔓 Entsperrt (Verschiebbar)'}
+                </button>
+            </div>`;
+        return;
+    }
+
+    // Detailansicht für Flächen (Rasen, Tropfzone, Totzone)
     targetContainer.innerHTML = `
         <div style="padding: 15px; color: #fff;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -113,57 +172,6 @@ export function updateSidebar(obj) {
             <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
             <button onclick="window.toggleLockSelected()" style="width:100%; padding:8px; background:${isLocked ? '#334155' : '#0284c7'}; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">
                 ${isLocked ? '🔒 Verbunden (Klick zum Entsperren)' : '🔓 Entsperrt (Verschiebbar)'}
-            </button>
-        </div>`;
-}
-
-// In deiner updateSidebar(obj) Funktion für Sprinkler:
-if (obj.type === 'sprinkler') {
-    return `
-        <div style="padding: 15px; color: #fff;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <h3 style="color: #3b82f6; margin:0;">💧 Regner (MP Rotator)</h3>
-                <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
-            </div>
-            
-            <label style="font-size:11px; color:#94a3b8;">Bezeichnung / Name:</label>
-            <input type="text" value="${obj.name || ''}" onchange="updateSprinklerProp('name', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
-
-            <label style="font-size:11px; color:#94a3b8;">Modell:</label>
-            <select onchange="updateSprinklerProp('model', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
-                <option value="MP800" ${obj.model === 'MP800' ? 'selected' : ''}>MP 800 (2.5 - 4.6 m)</option>
-                <option value="MP1000" ${obj.model === 'MP1000' || !obj.model ? 'selected' : ''}>MP 1000 (2.5 - 4.5 m)</option>
-                <option value="MP2000" ${obj.model === 'MP2000' ? 'selected' : ''}>MP 2000 (4.0 - 6.4 m)</option>
-                <option value="MP3000" ${obj.model === 'MP3000' ? 'selected' : ''}>MP 3000 (6.7 - 9.1 m)</option>
-            </select>
-
-            <div style="display:flex; gap:10px; margin-bottom:8px;">
-                <div style="flex:1;">
-                    <label style="font-size:11px; color:#94a3b8;">Wurfweite (m):</label>
-                    <input type="number" step="0.1" value="${obj.radius || 3.5}" onchange="updateSprinklerProp('radius', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
-                </div>
-                <div style="flex:1;">
-                    <label style="font-size:11px; color:#94a3b8;">Öffnung (°):</label>
-                    <input type="number" step="5" value="${obj.arc || 90}" onchange="updateSprinklerProp('arc', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
-                </div>
-            </div>
-
-            <div style="display:flex; gap:10px; margin-bottom:12px;">
-                <div style="flex:1;">
-                    <label style="font-size:11px; color:#94a3b8;">Ausrichtung (°):</label>
-                    <input type="number" step="5" value="${obj.angle || 0}" onchange="updateSprinklerProp('angle', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
-                </div>
-                <div style="flex:1;">
-                    <label style="font-size:11px; color:#94a3b8;">Wasserbedarf (m³/h):</label>
-                    <input type="number" step="0.01" value="${obj.rate || 0.1}" onchange="updateSprinklerProp('rate', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
-                </div>
-            </div>
-
-            <label style="font-size:11px; color:#94a3b8;">Rohrleitung / Strang:</label>
-            <input type="text" value="${obj.strang || 'Nicht zugewiesen'}" disabled style="width:100%; padding:6px; background:#0f172a; border:1px solid #334155; color:#94a3b8; border-radius:4px; margin-bottom:12px;">
-
-            <button onclick="toggleLockSelected()" style="width:100%; padding:8px; background:#334155; color:#fff; border:1px solid #475569; border-radius:4px; cursor:pointer;">
-                ${obj.locked ? '🔓 Objekt entsperren' : '🔒 Objekt sperren'}
             </button>
         </div>`;
 }
