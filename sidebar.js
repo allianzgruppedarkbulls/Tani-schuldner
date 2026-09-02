@@ -77,8 +77,8 @@ export function updateSidebar(obj) {
         return;
     }
 
-    // Detailansicht für ausgewähltes Objekt (mit automatischem Schloss)
-    const isLocked = obj.locked !== false; // Standardmäßig gesperrt wenn verbunden
+    // Detailansicht für ausgewähltes Objekt
+    const isLocked = obj.locked !== false;
     targetContainer.innerHTML = `
         <div style="padding: 15px; color: #fff;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
