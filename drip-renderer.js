@@ -1,6 +1,6 @@
 // drip-renderer.js - Rendering-Logik für Tropfzonen (Mäander & Rahmen)
 
-function drawDripZone(ctx, obj, scale, pixelsPerMeter, isSelected) {
+export function drawDripZone(ctx, obj, scale, pixelsPerMeter, isSelected) {
     if (!obj.points || obj.points.length < 3) return;
 
     ctx.beginPath();
