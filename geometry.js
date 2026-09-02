@@ -8,6 +8,7 @@ export function calculatePolygonArea(pts, pxm) {
         area += pts[i].x * pts[j].y;
         area -= pts[j].x * pts[i].y;
     }
+    
     return Math.round(Math.abs(area / 2.0) / (pxm * pxm) * 100) / 100;
 }
 
