@@ -116,3 +116,54 @@ export function updateSidebar(obj) {
             </button>
         </div>`;
 }
+
+// In deiner updateSidebar(obj) Funktion für Sprinkler:
+if (obj.type === 'sprinkler') {
+    return `
+        <div style="padding: 15px; color: #fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="color: #3b82f6; margin:0;">💧 Regner (MP Rotator)</h3>
+                <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
+            </div>
+            
+            <label style="font-size:11px; color:#94a3b8;">Bezeichnung / Name:</label>
+            <input type="text" value="${obj.name || ''}" onchange="updateSystemMeta('name', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
+
+            <label style="font-size:11px; color:#94a3b8;">Modell:</label>
+            <select onchange="updateSprinklerProp('model', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
+                <option value="MP800" ${obj.model === 'MP800' ? 'selected' : ''}>MP 800 (2.5 - 4.6 m)</option>
+                <option value="MP1000" ${obj.model === 'MP1000' || !obj.model ? 'selected' : ''}>MP 1000 (2.5 - 4.5 m)</option>
+                <option value="MP2000" ${obj.model === 'MP2000' ? 'selected' : ''}>MP 2000 (4.0 - 6.4 m)</option>
+                <option value="MP3000" ${obj.model === 'MP3000' ? 'selected' : ''}>MP 3000 (6.7 - 9.1 m)</option>
+            </select>
+
+            <div style="display:flex; gap:10px; margin-bottom:8px;">
+                <div style="flex:1;">
+                    <label style="font-size:11px; color:#94a3b8;">Wurfweite (m):</label>
+                    <input type="number" step="0.1" value="${obj.radius || 3.5}" onchange="updateSprinklerProp('radius', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:11px; color:#94a3b8;">Öffnung (°):</label>
+                    <input type="number" step="5" value="${obj.arc || 90}" onchange="updateSprinklerProp('arc', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-bottom:12px;">
+                <div style="flex:1;">
+                    <label style="font-size:11px; color:#94a3b8;">Ausrichtung (°):</label>
+                    <input type="number" step="5" value="${obj.angle || 0}" onchange="updateSprinklerProp('angle', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:11px; color:#94a3b8;">Wasserbedarf (m³/h):</label>
+                    <input type="number" step="0.01" value="${obj.rate || 0.1}" onchange="updateSprinklerProp('rate', parseFloat(this.value))" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px;">
+                </div>
+            </div>
+
+            <label style="font-size:11px; color:#94a3b8;">Rohrleitung / Strang:</label>
+            <input type="text" value="${obj.strang || 'Nicht zugewiesen'}" disabled style="width:100%; padding:6px; background:#0f172a; border:1px solid #334155; color:#94a3b8; border-radius:4px; margin-bottom:12px;">
+
+            <button onclick="toggleLockSelected()" style="width:100%; padding:8px; background:#334155; color:#fff; border:1px solid #475569; border-radius:4px; cursor:pointer;">
+                ${obj.locked ? '🔓 Objekt entsperren' : '🔒 Objekt sperren'}
+            </button>
+        </div>`;
+}
