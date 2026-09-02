@@ -1,6 +1,6 @@
 // lawn.js - Verwaltung und Rendering von Rasenflächen und Totzonen
 
-function createLawn(points, type = 'lawn') {
+export function createLawn(points, type = 'lawn') {
     return {
         type: type, // 'lawn' oder 'deadzone'
         points: [...points],
@@ -8,7 +8,7 @@ function createLawn(points, type = 'lawn') {
     };
 }
 
-function drawLawn(ctx, obj, scale, pixelsPerMeter, isSelected) {
+export function drawLawn(ctx, obj, scale, pixelsPerMeter, isSelected) {
     if (!obj.points || obj.points.length < 3) return;
 
     ctx.beginPath();
@@ -42,7 +42,7 @@ function drawLawn(ctx, obj, scale, pixelsPerMeter, isSelected) {
     }
 }
 
-function calculatePolygonArea(points, pixelsPerMeter) {
+export function calculatePolygonArea(points, pixelsPerMeter) {
     if (!points || points.length < 3) return 0;
     let areaPx = 0;
     for (let i = 0; i < points.length; i++) {
@@ -55,7 +55,7 @@ function calculatePolygonArea(points, pixelsPerMeter) {
     return Math.round((areaPx / pxm2) * 100) / 100;
 }
 
-function getLawnSidebarHTML(obj, pixelsPerMeter) {
+export function getLawnSidebarHTML(obj, pixelsPerMeter) {
     const areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
     const title = obj.type === 'deadzone' ? '🚫 Totzone / Ausschluss' : '🌱 Rasenfläche';
     const color = obj.type === 'deadzone' ? '#ef4444' : '#22c55e';
@@ -74,7 +74,7 @@ function getLawnSidebarHTML(obj, pixelsPerMeter) {
         </div>`;
 }
 
-function toggleLawnType() {
+export function toggleLawnType() {
     if (selectedObj && (selectedObj.type === 'lawn' || selectedObj.type === 'deadzone')) {
         selectedObj.type = selectedObj.type === 'lawn' ? 'deadzone' : 'lawn';
         draw();
