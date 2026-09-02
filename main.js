@@ -1,4 +1,4 @@
-// main.js - CAD Hauptsteuerung (Snapping, Echte Schlauch-Mäander & Durchgezeichneter Rahmen)
+// main.js - CAD Hauptsteuerung (Inkl. Maßstabs-Fix, Tools & Zonen-Berechnung)
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -7,7 +7,6 @@ const container = document.getElementById('canvas-container');
 let width = container.clientWidth;
 let height = container.clientHeight;
 canvas.width = width; canvas.height = height;
-
 
 let scale = 1.0, offsetX = 0, offsetY = 0;
 let isPanning = false, startPanX = 0, startPanY = 0, spacePressed = false;
@@ -23,6 +22,9 @@ let activeHandleIndex = -1;
 let scaleStartPoint = null;
 let currentMouseWorld = null;
 
+// Für Rohrleitungen / Linien-Tools
+let pipePoints = [];
+
 function toWorld(sX, sY) { return { x: (sX - offsetX) / scale, y: (sY - offsetY) / scale }; }
 
 window.addEventListener('keydown', (e) => { 
@@ -30,6 +32,8 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         selectedObj = null;
         activeHandleIndex = -1;
+        polygonPoints = [];
+        pipePoints = [];
         updateSidebar(null);
         draw();
     }
@@ -74,6 +78,7 @@ document.getElementById('img-upload')?.addEventListener('change', (e) => {
 function setTool(tool) {
     currentTool = tool;
     polygonPoints = [];
+    pipePoints = [];
     scaleStartPoint = null;
     activeHandleIndex = -1;
     document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
@@ -92,9 +97,10 @@ bindBtn('btn-scale', 'scale');
 bindBtn('btn-measure', 'measure');
 bindBtn('btn-draw-lawn', 'draw-lawn');
 bindBtn('btn-draw-drip', 'draw-drip');
-bindBtn('btn-add-drip-feed', 'add-drip-feed');
-bindBtn('btn-add-sprinkler', 'add-sprinkler');
+bindBtn('btn-draw-deadzone', 'draw-deadzone');
 bindBtn('btn-add-source', 'add-source');
+bindBtn('btn-add-sprinkler', 'add-sprinkler');
+bindBtn('btn-draw-pipe', 'draw-pipe');
 
 const deleteBtn = document.getElementById('btn-delete');
 if (deleteBtn) {
@@ -107,6 +113,22 @@ if (deleteBtn) {
             draw();
         }
     };
+}
+
+// Maßstab aktualisieren und alle Zonen-Flächen direkt neu berechnen
+function updatePixelsPerMeter(newPxM) {
+    pixelsPerMeter = newPxM;
+    const pxmEl = document.getElementById('val-px-m');
+    if(pxmEl) pxmEl.innerText = `${pixelsPerMeter.toFixed(1)} px/m`;
+    
+    // Alle bestehenden Flächen sofort mit dem neuen Maßstab aktualisieren!
+    objects.forEach(obj => {
+        if ((obj.type === 'lawn' || obj.type === 'drip' || obj.type === 'deadzone') && obj.points) {
+            obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
+        }
+    });
+    updateSidebar(selectedObj);
+    draw();
 }
 
 // ==========================================
@@ -151,96 +173,55 @@ function updateSidebar(obj) {
                     <p>Gesamtbedarf: <strong>${Math.round(totalWater)} l / Woche</strong></p>
                 </div>
                 <div style="margin-top:20px; padding:8px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:4px; font-size:11px; color:#fcd34d;">
-                    ℹ️ <strong>Hinweis:</strong> Alle Berechnungen und Pläne sind unverbindliche Richtwerte/Empfehlungen für Material und Verlegung. Bauliche Abweichungen vor Ort vorbehalten.
+                    ℹ️ <strong>Hinweis:</strong> Alle Berechnungen und Pläne sind unverbindliche Richtwerte.
                 </div>
             </div>`;
         return;
     }
 
-    if (obj.type === 'lawn') {
+    if (obj.type === 'lawn' || obj.type === 'drip' || obj.type === 'deadzone') {
         if (!obj.soilType) obj.soilType = 'normal';
-        if (!obj.waterRate) obj.waterRate = 25;
+        if (!obj.waterRate) obj.waterRate = obj.type === 'lawn' ? 25 : 20;
         if (obj.points) obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
         const area = obj.areaM2 || 0;
         const weeklyWaterLiters = Math.round(area * obj.waterRate);
+        const titleColor = obj.type === 'lawn' ? '#22c55e' : (obj.type === 'drip' ? '#fb923c' : '#ef4444');
+        const titleName = obj.type === 'lawn' ? 'Rasenfläche' : (obj.type === 'drip' ? 'Tropfzone' : 'Totzone / Schutzzone');
 
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #fff;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h3 style="color: #38bdf8; margin:0;">🟩 Rasenfläche</h3>
+                    <h3 style="color: ${titleColor}; margin:0;">${titleName}</h3>
                     <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
                 </div>
                 <p><strong>Fläche:</strong> ${area} m²</p>
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Bodenart:</label>
-                <select id="soil-type-select" onchange="changeSoilType(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="sand" ${obj.soilType === 'sand' ? 'selected' : ''}>Sandiger Boden</option>
-                    <option value="normal" ${obj.soilType === 'normal' ? 'selected' : ''}>Mutterboden (Standard)</option>
-                    <option value="clay" ${obj.soilType === 'clay' ? 'selected' : ''}>Lehm-/Tonboden</option>
-                </select>
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Wasserbedarf (l/m²/Woche):</label>
-                <input type="number" id="water-rate-input" value="${obj.waterRate}" onchange="changeWaterRate(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
-                <p><strong>Wöchentlicher Bedarf:</strong> ${weeklyWaterLiters} Liter</p>
+                ${obj.type !== 'deadzone' ? `
+                    <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Wasserbedarf (l/m²/Woche):</label>
+                    <input type="number" id="water-rate-input" value="${obj.waterRate}" onchange="changeWaterRate(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
+                    <p><strong>Wöchentlicher Bedarf:</strong> ${weeklyWaterLiters} Liter</p>
+                ` : ''}
                 <button onclick="toggleLockSelected()" style="width:100%; padding:8px; margin-top:15px; background:#334155; color:#fff; border:none; border-radius:4px; cursor:pointer;">
                     ${obj.locked ? '🔓 Fläche entsperren' : '🔒 Fläche sperren'}
                 </button>
             </div>`;
-    } else if (obj.type === 'drip') {
-        if (!obj.soilType) obj.soilType = 'normal';
-        if (!obj.dripDistance) obj.dripDistance = 33; 
-        if (!obj.waterRate) obj.waterRate = 20;
-        if (!obj.layoutMode) obj.layoutMode = 'loop'; 
-        if (obj.rotationAngle === undefined) obj.rotationAngle = 0;
-        if (obj.points) obj.areaM2 = calculatePolygonArea(obj.points, pixelsPerMeter);
-        const area = obj.areaM2 || 0;
-        const weeklyWaterLiters = Math.round(area * obj.waterRate);
-
+    } else if (obj.type === 'source' || obj.type === 'sprinkler') {
         targetContainer.innerHTML = `
             <div style="padding: 15px; color: #fff;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h3 style="color: #fb923c; margin:0;">💧 Tropfzone</h3>
+                    <h3 style="color: #38bdf8; margin:0;">${obj.type === 'source' ? '🚰 Wasserquelle' : '🎯 Regner'}</h3>
                     <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
                 </div>
-                <p><strong>Fläche:</strong> ${area} m²</p>
-                
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Verlegemodus:</label>
-                <select id="drip-mode-select" onchange="changeDripLayoutMode(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="loop" ${obj.layoutMode === 'loop' ? 'selected' : ''}>Schleife / Schlenker (Mäander)</option>
-                    <option value="frame" ${obj.layoutMode === 'frame' ? 'selected' : ''}>Beet-Rahmen + T-Stücke & Linien</option>
-                </select>
-
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Tropferabstand:</label>
-                <select id="drip-dist-select" onchange="changeDripDistance(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <option value="20" ${obj.dripDistance == 20 ? 'selected' : ''}>20 cm (Eng)</option>
-                    <option value="33" ${obj.dripDistance == 33 ? 'selected' : ''}>33 cm (Standard)</option>
-                    <option value="50" ${obj.dripDistance == 50 ? 'selected' : ''}>50 cm (Weit)</option>
-                </select>
-                
-                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Muster-Drehung (Grad): <span id="val-rot">${obj.rotationAngle}°</span></label>
-                <input type="range" id="drip-rotation-input" min="0" max="360" value="${obj.rotationAngle}" oninput="changeDripRotation(this.value)" style="width:100%; margin-bottom:10px; accent-color:#fb923c;">
-
-                <hr style="border:0; border-top:1px solid #334155; margin:15px 0;">
-                <p><strong>Wöchentlicher Bedarf:</strong> ${weeklyWaterLiters} Liter</p>
-                <button onclick="toggleLockSelected()" style="width:100%; padding:8px; margin-top:15px; background:#334155; color:#fff; border:none; border-radius:4px; cursor:pointer;">
-                    ${obj.locked ? '🔓 Zone entsperren' : '🔒 Zone sperren'}
-                </button>
+                <p>Position X: ${Math.round(obj.x)}, Y: ${Math.round(obj.y)}</p>
+                <label style="display:block; margin-top:10px; font-size:12px; color:#94a3b8;">Bezeichnung / Details:</label>
+                <input type="text" value="${obj.name || ''}" onchange="updateObjName(this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
             </div>`;
     }
 }
 
 function deselectCurrent() { selectedObj = null; activeHandleIndex = -1; updateSidebar(null); draw(); }
 function selectObjectByIndex(index) { if (objects[index]) { selectedObj = objects[index]; activeHandleIndex = -1; updateSidebar(selectedObj); draw(); } }
-function changeSoilType(type) { if (!selectedObj) return; selectedObj.soilType = type; updateSidebar(selectedObj); draw(); }
 function changeWaterRate(val) { if (!selectedObj) return; selectedObj.waterRate = parseFloat(val) || 0; updateSidebar(selectedObj); draw(); }
-function changeDripDistance(val) { if (!selectedObj) return; selectedObj.dripDistance = parseInt(val); updateSidebar(selectedObj); draw(); }
-function changeDripLayoutMode(mode) { if (!selectedObj) return; selectedObj.layoutMode = mode; updateSidebar(selectedObj); draw(); }
-function changeDripRotation(val) { 
-    if (!selectedObj) return; 
-    selectedObj.rotationAngle = parseInt(val) || 0; 
-    const rotLabel = document.getElementById('val-rot');
-    if(rotLabel) rotLabel.innerText = `${selectedObj.rotationAngle}°`;
-    draw(); 
-}
+function updateObjName(val) { if (!selectedObj) return; selectedObj.name = val; }
 function toggleLockSelected() { if (!selectedObj) return; selectedObj.locked = !selectedObj.locked; updateSidebar(selectedObj); draw(); }
 
 function calculatePolygonArea(pts, pxm) {
@@ -254,7 +235,7 @@ function calculatePolygonArea(pts, pxm) {
 }
 
 // ==========================================
-// MOUSE & SNAPPING EVENTS
+// MOUSE & TOOL EVENTS
 // ==========================================
 canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -266,26 +247,31 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
+    // 1. Maßstab setzen
     if (currentTool === 'scale') {
         if (!scaleStartPoint) { scaleStartPoint = world; } 
         else {
             const distPx = Math.hypot(world.x - scaleStartPoint.x, world.y - scaleStartPoint.y);
             const inputMeters = prompt("Strecke in Metern:", "5");
-            if (inputMeters && !isNaN(parseFloat(inputMeters))) pixelsPerMeter = distPx / parseFloat(inputMeters);
+            if (inputMeters && !isNaN(parseFloat(inputMeters)) && parseFloat(inputMeters) > 0) {
+                updatePixelsPerMeter(distPx / parseFloat(inputMeters));
+            }
             scaleStartPoint = null; setTool('select');
         }
         draw();
         return;
     }
 
-    if (currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
-        // SNAPPING AN BESTEHENDE ECKPUNKTE
+    // 2. Flächen zeichnen (Rasen, Tropfzone, Totzone)
+    if (currentTool === 'draw-lawn' || currentTool === 'draw-drip' || currentTool === 'draw-deadzone') {
         const snapRadius = 15 / scale;
         for (let obj of objects) {
-            for (let pt of obj.points) {
-                if (Math.hypot(world.x - pt.x, world.y - pt.y) < snapRadius) {
-                    world = { x: pt.x, y: pt.y };
-                    break;
+            if(obj.points) {
+                for (let pt of obj.points) {
+                    if (Math.hypot(world.x - pt.x, world.y - pt.y) < snapRadius) {
+                        world = { x: pt.x, y: pt.y };
+                        break;
+                    }
                 }
             }
         }
@@ -298,8 +284,41 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
+    // 3. Bauteile setzen (Wasserquelle, Regner)
+    if (currentTool === 'add-source' || currentTool === 'add-sprinkler') {
+        const newObj = {
+            type: currentTool === 'add-source' ? 'source' : 'sprinkler',
+            x: world.x,
+            y: world.y,
+            name: currentTool === 'add-source' ? 'Hauptanschluss' : 'Regner 1',
+            locked: false
+        };
+        objects.push(newObj);
+        selectedObj = newObj;
+        updateSidebar(selectedObj);
+        setTool('select');
+        draw();
+        return;
+    }
+
+    // 4. Rohrleitungen verlegen
+    if (currentTool === 'draw-pipe') {
+        pipePoints.push(world);
+        if (pipePoints.length >= 2) {
+            objects.push({
+                type: 'pipe',
+                points: [...pipePoints],
+                locked: false
+            });
+            pipePoints = [world]; // Nahtloses Weiterzeichnen ermöglichen
+        }
+        draw();
+        return;
+    }
+
+    // 5. Select / Bearbeiten Modus
     if (currentTool === 'select') {
-        if (selectedObj && !selectedObj.locked) {
+        if (selectedObj && selectedObj.points && !selectedObj.locked) {
             const handleRadius = 12 / scale;
             for (let i = 0; i < selectedObj.points.length; i++) {
                 if (Math.hypot(world.x - selectedObj.points[i].x, world.y - selectedObj.points[i].y) < handleRadius) {
@@ -309,7 +328,8 @@ canvas.addEventListener('mousedown', (e) => {
             }
         }
 
-        selectedObj = objects.slice().reverse().find(o => isPointInPolygon(world, o.points)) || null;
+        selectedObj = objects.slice().reverse().find(o => o.points && isPointInPolygon(world, o.points)) || 
+                      objects.slice().reverse().find(o => o.type === 'source' || o.type === 'sprinkler' ? Math.hypot(world.x - o.x, world.y - o.y) < 15/scale : false) || null;
         activeHandleIndex = -1;
         updateSidebar(selectedObj);
         draw();
@@ -327,8 +347,21 @@ function isPointInPolygon(point, vs) {
 
 function finishPolygon() {
     if (polygonPoints.length > 2) {
-        const type = currentTool === 'draw-lawn' ? 'lawn' : 'drip';
-        const newObj = { type, points: [...polygonPoints], soilType: 'normal', dripDistance: 33, waterRate: type === 'lawn' ? 25 : 20, layoutMode: 'loop', rotationAngle: 0, locked: false };
+        let type = 'lawn';
+        if (currentTool === 'draw-drip') type = 'drip';
+        if (currentTool === 'draw-deadzone') type = 'deadzone';
+
+        const newObj = { 
+            type, 
+            points: [...polygonPoints], 
+            soilType: 'normal', 
+            dripDistance: 33, 
+            waterRate: type === 'lawn' ? 25 : (type === 'drip' ? 20 : 0), 
+            layoutMode: 'loop', 
+            rotationAngle: 0, 
+            locked: false,
+            areaM2: calculatePolygonArea(polygonPoints, pixelsPerMeter)
+        };
         objects.push(newObj);
         selectedObj = newObj;
         polygonPoints = [];
@@ -337,27 +370,19 @@ function finishPolygon() {
     }
 }
 
-canvas.addEventListener('dblclick', finishPolygon);
+canvas.addEventListener('dblclick', () => {
+    if (currentTool === 'draw-lawn' || currentTool === 'draw-drip' || currentTool === 'draw-deadzone') {
+        finishPolygon();
+    }
+});
 
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     let world = toWorld(e.clientX - rect.left, e.clientY - rect.top);
 
     if (isPanning) { offsetX = (e.clientX - rect.left) - startPanX; offsetY = (e.clientY - rect.top) - startPanY; draw(); return; }
-    
-    if (currentTool === 'draw-lawn' || currentTool === 'draw-drip') {
-        const snapRadius = 15 / scale;
-        for (let obj of objects) {
-            for (let pt of obj.points) {
-                if (Math.hypot(world.x - pt.x, world.y - pt.y) < snapRadius) {
-                    world = { x: pt.x, y: pt.y };
-                    break;
-                }
-            }
-        }
-    }
 
-    if (activeHandleIndex !== -1 && selectedObj && !selectedObj.locked) {
+    if (activeHandleIndex !== -1 && selectedObj && selectedObj.points && !selectedObj.locked) {
         selectedObj.points[activeHandleIndex] = world;
         selectedObj.areaM2 = calculatePolygonArea(selectedObj.points, pixelsPerMeter);
         updateSidebar(selectedObj);
@@ -372,32 +397,6 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => { isPanning = false; activeHandleIndex = -1; });
 
 // ==========================================
-// SCHNITTBERECHNUNG
-// ==========================================
-function getLinePolygonIntersections(p1, p2, polygon) {
-    let intersections = [];
-    for (let i = 0; i < polygon.length; i++) {
-        let p3 = polygon[i];
-        let p4 = polygon[(i + 1) % polygon.length];
-        let pt = getIntersection(p1, p2, p3, p4);
-        if (pt) intersections.push(pt.x);
-    }
-    intersections.sort((a, b) => a - b);
-    return intersections.filter((val, index, arr) => index === 0 || Math.abs(val - arr[index - 1]) > 0.5);
-}
-
-function getIntersection(p1, p2, p3, p4) {
-    let denom = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
-    if (denom === 0) return null;
-    let ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denom;
-    let ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denom;
-    if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
-        return { x: p1.x + ua * (p2.x - p1.x), y: p1.y + ua * (p2.y - p1.y) };
-    }
-    return null;
-}
-
-// ==========================================
 // ZEICHEN-LOOP 
 // ==========================================
 function draw() {
@@ -409,140 +408,76 @@ function draw() {
     if (bgImage) ctx.drawImage(bgImage, 0, 0);
 
     objects.forEach(obj => {
-        if (!obj.points || obj.points.length < 3) return;
+        if (obj.type === 'lawn' || obj.type === 'drip' || obj.type === 'deadzone') {
+            if (!obj.points || obj.points.length < 3) return;
 
-        ctx.beginPath();
-        ctx.moveTo(obj.points[0].x, obj.points[0].y);
-        obj.points.forEach(p => ctx.lineTo(p.x, p.y));
-        ctx.closePath();
+            ctx.beginPath();
+            ctx.moveTo(obj.points[0].x, obj.points[0].y);
+            obj.points.forEach(p => ctx.lineTo(p.x, p.y));
+            ctx.closePath();
 
-        if (obj.type === 'lawn') {
-            ctx.fillStyle = obj === selectedObj ? 'rgba(34, 197, 94, 0.45)' : 'rgba(34, 197, 94, 0.25)';
-            ctx.fill();
-            ctx.strokeStyle = obj === selectedObj ? '#22c55e' : '#16a34a';
-            ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
-            ctx.stroke();
-        } else if (obj.type === 'drip') {
-            ctx.fillStyle = obj === selectedObj ? 'rgba(249, 115, 22, 0.45)' : 'rgba(249, 115, 22, 0.25)';
-            ctx.fill();
+            if (obj.type === 'lawn') {
+                ctx.fillStyle = obj === selectedObj ? 'rgba(34, 197, 94, 0.45)' : 'rgba(34, 197, 94, 0.25)';
+                ctx.fill();
+                ctx.strokeStyle = obj === selectedObj ? '#22c55e' : '#16a34a';
+                ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
+                ctx.stroke();
+            } else if (obj.type === 'drip') {
+                ctx.fillStyle = obj === selectedObj ? 'rgba(249, 115, 22, 0.45)' : 'rgba(249, 115, 22, 0.25)';
+                ctx.fill();
+                ctx.strokeStyle = obj === selectedObj ? '#f97316' : '#c2410c';
+                ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
+                ctx.stroke();
+            } else if (obj.type === 'deadzone') {
+                ctx.fillStyle = obj === selectedObj ? 'rgba(239, 68, 68, 0.45)' : 'rgba(239, 68, 68, 0.25)';
+                ctx.fill();
+                ctx.strokeStyle = obj === selectedObj ? '#ef4444' : '#b91c1c';
+                ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
+                ctx.stroke();
+            }
 
-            // Äußere Umrandung der Tropfzone
-            ctx.strokeStyle = obj === selectedObj ? '#f97316' : '#c2410c';
-            ctx.lineWidth = (obj === selectedObj ? 3 : 2) / scale;
-            ctx.stroke();
-
-            // Innenlayout (Schleife / Mäander oder durchgezeichneter Rahmen)
-            ctx.save();
+            // Flächentext
             let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
             let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
-            
-            ctx.translate(cx, cy);
-            let angleRad = (obj.rotationAngle || 0) * Math.PI / 180;
-            ctx.rotate(angleRad);
-            ctx.translate(-cx, -cy);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${12 / scale}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.fillText(`${obj.areaM2 || 0} m²`, cx, cy);
 
-            let cos = Math.cos(-angleRad), sin = Math.sin(-angleRad);
-            let rotPoints = obj.points.map(p => ({
-                x: cx + (p.x - cx) * cos - (p.y - cy) * sin,
-                y: cy + (p.x - cx) * sin + (p.y - cy) * cos
-            }));
-
-            let minRotY = Math.min(...rotPoints.map(p => p.y));
-            let maxRotY = Math.max(...rotPoints.map(p => p.y));
-            let minRotX = Math.min(...rotPoints.map(p => p.x));
-            let maxRotX = Math.max(...rotPoints.map(p => p.x));
-
-            const spacingPx = (obj.dripDistance || 33) * (pixelsPerMeter / 100) * 1.5;
-            // Ausreichender Abstand zum Rand (ca. 25cm / 0.25m)
-            const edgeInset = pixelsPerMeter * 0.25;
-
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.8 / scale;
-            ctx.beginPath();
-
-            let rows = [];
-            for (let y = minRotY + edgeInset; y <= maxRotY - edgeInset; y += spacingPx) {
-                let p1 = { x: minRotX - 100, y: y };
-                let p2 = { x: maxRotX + 100, y: y };
-                let xCoords = getLinePolygonIntersections(p1, p2, rotPoints);
-
-                if (xCoords.length >= 2) {
-                    let startX = xCoords[0] + edgeInset;
-                    let endX = xCoords[xCoords.length - 1] - edgeInset;
-                    if (startX < endX) {
-                        rows.push({ y: y, startX: startX, endX: endX });
-                    }
-                }
-            }
-
-            if (obj.layoutMode === 'loop' && rows.length > 0) {
-                // Echte Endlos-Schleife (Mäander mit U-Bögen abwechselnd links und rechts)
-                for (let i = 0; i < rows.length; i++) {
-                    let r = rows[i];
-                    if (i % 2 === 0) {
-                        ctx.moveTo(r.startX, r.y);
-                        ctx.lineTo(r.endX, r.y);
-                        if (i < rows.length - 1) {
-                            // Rechter U-Bogen zum nächsten
-                            let nextY = rows[i+1].y;
-                            ctx.arc(r.endX, (r.y + nextY)/2, (nextY - r.y)/2, -Math.PI/2, Math.PI/2, false);
-                        }
-                    } else {
-                        ctx.moveTo(r.endX, r.y);
-                        ctx.lineTo(r.startX, r.y);
-                        if (i < rows.length - 1) {
-                            // Linker U-Bogen zum nächsten
-                            let nextY = rows[i+1].y;
-                            ctx.arc(r.startX, (r.y + nextY)/2, (nextY - r.y)/2, Math.PI/2, 3*Math.PI/2, false);
-                        }
-                    }
-                }
-            } else if (obj.layoutMode === 'frame') {
-                // Umlaufender Rahmen + durchgehende Parallellinien mit echten T-Stücken
-                let frameMinX = Math.min(...rows.map(r => r.startX)) - 10/scale;
-                let frameMaxX = Math.max(...rows.map(r => r.endX)) + 10/scale;
-                let frameMinY = rows.length > 0 ? rows[0].y - 10/scale : minRotY;
-                let frameMaxY = rows.length > 0 ? rows[rows.length-1].y + 10/scale : maxRotY;
-
-                // Äußere Rahmenleitung
-                ctx.strokeRect(frameMinX, frameMinY, frameMaxX - frameMinX, frameMaxY - frameMinY);
-
-                // Parallele Innenlinien mit T-Stücken an den Anbindungen
-                rows.forEach(r => {
-                    ctx.moveTo(r.startX, r.y);
-                    ctx.lineTo(r.endX, r.y);
-                    // T-Stück Markierungen
-                    ctx.moveTo(r.startX - 3/scale, r.y - 3/scale); ctx.lineTo(r.startX + 3/scale, r.y + 3/scale);
-                    ctx.moveTo(r.endX - 3/scale, r.y - 3/scale); ctx.lineTo(r.endX + 3/scale, r.y + 3/scale);
+            // Eckpunkte bei Auswahl
+            if (obj === selectedObj) {
+                obj.points.forEach((p) => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 6 / scale, 0, Math.PI * 2);
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2 / scale;
+                    ctx.fill();
+                    ctx.stroke();
                 });
             }
-
+        } else if (obj.type === 'source' || obj.type === 'sprinkler') {
+            ctx.beginPath();
+            ctx.arc(obj.x, obj.y, 8 / scale, 0, Math.PI * 2);
+            ctx.fillStyle = obj.type === 'source' ? '#3b82f6' : '#eab308';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2 / scale;
+            ctx.fill();
             ctx.stroke();
-            ctx.restore();
-        }
-
-        // Zentrierter Text & Flächeninfo
-        let cx = obj.points.reduce((sum, p) => sum + p.x, 0) / obj.points.length;
-        let cy = obj.points.reduce((sum, p) => sum + p.y, 0) / obj.points.length;
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `bold ${12 / scale}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(`${obj.type === 'lawn' ? 'Rasen' : 'Tropfzone'}: ${obj.areaM2 || 0} m²`, cx, cy);
-
-        // Eckpunkte anzeigen
-        if (obj === selectedObj) {
-            obj.points.forEach((p, idx) => {
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 6 / scale, 0, Math.PI * 2);
-                ctx.fillStyle = '#38bdf8';
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2 / scale;
-                ctx.fill();
-                ctx.stroke();
-            });
+        } else if (obj.type === 'pipe') {
+            if (!obj.points || obj.points.length < 2) return;
+            ctx.beginPath();
+            ctx.moveTo(obj.points[0].x, obj.points[0].y);
+            for(let i = 1; i < obj.points.length; i++) {
+                ctx.lineTo(obj.points[i].x, obj.points[i].y);
+            }
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 3 / scale;
+            ctx.stroke();
         }
     });
 
+    // Aktives Zeichnen (Polygons)
     if (polygonPoints.length > 0) {
         ctx.beginPath();
         ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
