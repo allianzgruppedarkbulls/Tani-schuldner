@@ -1,43 +1,33 @@
-// js/state.js - Globaler Anwendungsstatus
-export const State = {
-    canvas: null,
-    ctx: null,
-    container: null,
-    width: 0,
-    height: 0,
-    scale: 1.0,
-    offsetX: 0,
-    offsetY: 0,
-    isPanning: false,
-    startPanX: 0,
-    startPanY: 0,
-    spacePressed: false,
-    
-    currentTool: 'select',
-    pixelsPerMeter: 20,
-    bgImage: null,
-    
-    objects: [], // Enthält Rasen, Tropfzonen, Totzonen, Quellen
-    polygonPoints: [],
-    selectedObj: null,
-    activeHandleIndex: -1,
-    scaleStartPoint: null,
-    currentMouseWorld: null,
+// state.js - Verwaltung des globalen Anwendungsstatus
 
-    // Zisternen- & Pumpen-Globaldaten
-    systemMeta: {
-        hasCistern: true,
-        cisternVolume: 5000, // Liter
-        waterSource: 'cistern',
-        pumpType: 'standard_3m3',
-        customFlow: 3.0,
-        customPressure: 3.5
-    }
+const state = {
+    objects: [],          // Alle gezeichneten Elemente (Rasen, Regner, Rohre, Tropfzonen)
+    selectedObj: null,    // Aktuell ausgewähltes Objekt
+    currentTool: 'select',// Aktives Werkzeug (z.B. 'select', 'lawn', 'sprinkler', 'pipe', 'drip')
+    pixelsPerMeter: 20,   // Maßstab: Pixel pro Meter
+    gridSize: 1,          // Rastergröße in Metern
+    showGrid: true,       // Raster anzeigen ja/nein
+    backgroundImg: null   // Hintergrundbild (z.B. Plan/Skizze)
 };
 
-export function toWorld(sX, sY) {
-    return {
-        x: (sX - State.offsetX) / State.scale,
-        y: (sY - State.offsetY) / State.scale
-    };
+function addObject(obj) {
+    state.objects.push(obj);
+}
+
+function removeObject(obj) {
+    const index = state.objects.indexOf(obj);
+    if (index > -1) {
+        state.objects.splice(index, 1);
+        if (state.selectedObj === obj) {
+            state.selectedObj = null;
+            if (typeof closeSidebar === 'function') closeSidebar();
+        }
+    }
+}
+
+function clearState() {
+    state.objects = [];
+    state.selectedObj = null;
+    if (typeof closeSidebar === 'function') closeSidebar();
+    if (typeof draw === 'function') draw();
 }
