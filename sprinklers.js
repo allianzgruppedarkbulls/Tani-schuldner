@@ -12,7 +12,7 @@ function createSprinkler(x, y, name = 'Regner') {
     };
 }
 
-function drawSprinkler(ctx, obj, scale, isSelected) {
+export function drawSprinkler(ctx, obj, scale, isSelected) {
     ctx.beginPath();
     ctx.arc(obj.x, obj.y, 8 / scale, 0, Math.PI * 2);
     ctx.fillStyle = '#eab308';
