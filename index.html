@@ -24,7 +24,7 @@
             <label>2. Flächen (Punkte & Kurven)</label>
             <button id="btn-draw-lawn">🟩 Rasen abstecken</button>
             <button id="btn-draw-drip">💧 Tropfzone abstecken</button>
-            <button id="btn-measure">📏 Maßband</button>
+            <button id="btn-draw-deadzone">⛔ Totzone abstecken</button>
         </div>
 
         <div class="tool-group">
@@ -58,17 +58,11 @@
             <div class="prop-row"><span>Zoom:</span> <strong id="val-zoom">100%</strong></div>
         </div>
 
-        <div class="card" id="selected-props" style="display: none;">
-            <h3>Eigenschaften</h3>
-            <div id="dynamic-props"></div>
-        </div>
+        <!-- Wird durch sidebar.js dynamisch gesteuert -->
+        <div id="sidebar-content"></div>
     </div>
 
-    <!-- Modulare Scripte einbinden -->
-    <script src="storage.js"></script>
-    <script src="sprinklers.js"></script>
-    <script src="lawn.js"></script>
-    <script src="pipes.js"></script>
-    <script src="main.js"></script>
+    <!-- Modulare Scripte als ES6 Modules -->
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>
