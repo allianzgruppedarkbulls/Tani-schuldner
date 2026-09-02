@@ -176,15 +176,6 @@ function updatePixelsPerMeter(newPxM) {
     draw();
 }
 
-function calculatePolygonArea(pts, pxm) {
-    let area = 0;
-    for (let i = 0; i < pts.length; i++) {
-        let j = (i + 1) % pts.length;
-        area += pts[i].x * pts[j].y;
-        area -= pts[j].x * pts[i].y;
-    }
-    return Math.round(Math.abs(area / 2.0) / (pxm * pxm) * 100) / 100;
-}
 
 // Maus-Events auf Canvas
 canvas.addEventListener('mousedown', (e) => {
