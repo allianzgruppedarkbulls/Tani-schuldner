@@ -1,57 +1,71 @@
-// js/pipes.js - Rohrnetz & Hydraulik-Berechnung
+// pipes.js - Verwaltung und Rendering von Rohrleitungen
 
-// Spezifischer Widerstand für Standard-PE-Rohre (Bar-Verlust pro Meter bei 1 m³/h)
-const PIPE_TYPES = {
-    'pe25': { name: "PE-Rohr 25mm (3/4\")", innerDiaMm: 20.4, maxFlow: 1.8 },
-    'pe32': { name: "PE-Rohr 32mm (1\")", innerDiaMm: 26.2, maxFlow: 3.2 }
-};
-
-// Berechnet den Druckverlust nach der Hazen-Williams-Formel (Näherung für Wasserleitung)
-function calculatePressureDrop(lengthMeters, flowRateM3h, innerDiaMm) {
-    if (lengthMeters <= 0 || flowRateM3h <= 0) return 0;
-    
-    // Umrechnung m³/h in l/min
-    const flowLmin = flowRateM3h * 16.667;
-    
-    // Druckverlust in bar (Formel-Appoximation für PE-Rohr)
-    const drop = 0.00001 * Math.pow(flowLmin, 1.75) / Math.pow(innerDiaMm / 10, 4.75) * lengthMeters;
-    return Math.round(drop * 100) / 100; // Gerundet auf 2 Nachkommastellen
+function createPipe(points) {
+    return {
+        type: 'pipe',
+        points: [...points],
+        diameter: 25, // mm
+        locked: false
+    };
 }
 
-// Berechnet die Gesamtlänge eines Rohrpfads
-function getPipeLength(points, pixelsPerMeter) {
-    let totalPx = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-        totalPx += Math.hypot(points[i+1].x - points[i].x, points[i+1].y - points[i].y);
+function drawPipe(ctx, obj, scale, isSelected) {
+    if (!obj.points || obj.points.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(obj.points[0].x, obj.points[0].y);
+    for (let i = 1; i < obj.points.length; i++) {
+        ctx.lineTo(obj.points[i].x, obj.points[i].y);
     }
-    return totalPx / pixelsPerMeter;
+    ctx.strokeStyle = isSelected ? '#f59e0b' : '#38bdf8';
+    ctx.lineWidth = (isSelected ? 4 : 3) / scale;
+    ctx.stroke();
+
+    // Eckpunkte anzeigen bei Auswahl
+    if (isSelected) {
+        obj.points.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 5 / scale, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2 / scale;
+            ctx.fill();
+            ctx.stroke();
+        });
+    }
 }
 
-// Zeichnet alle Rohre auf das Canvas
-function drawPipes(ctx, objects, scale, pixelsPerMeter, selectedObj) {
-    objects.filter(o => o.type === 'pipe').forEach(pipe => {
-        if (pipe.points.length < 2) return;
+function getPipeSidebarHTML(obj) {
+    const lengthMeters = calculatePipeLength(obj.points);
+    return `
+        <div style="padding: 15px; color: #fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="color: #38bdf8; margin:0;">🛠️ Rohrleitung</h3>
+                <button onclick="deselectCurrent()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px;">✕</button>
+            </div>
+            <p style="font-size:12px; color:#94a3b8; margin-bottom:10px;">Gesamtlänge: approx. ${lengthMeters} m</p>
+            
+            <label style="display:block; margin-top:8px; font-size:12px; color:#94a3b8;">Rohr-Durchmesser (mm):</label>
+            <select id="pipe-diameter" onchange="updatePipeProp('diameter', this.value)" style="width:100%; padding:6px; margin-bottom:10px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
+                <option value="20" ${obj.diameter == 20 ? 'selected' : ''}>20 mm</option>
+                <option value="25" ${obj.diameter == 25 ? 'selected' : ''}>25 mm</option>
+                <option value="32" ${obj.diameter == 32 ? 'selected' : ''}>32 mm</option>
+            </select>
+        </div>`;
+}
 
-        ctx.beginPath();
-        ctx.moveTo(pipe.points[0].x, pipe.points[0].y);
-        for (let i = 1; i < pipe.points.length; i++) {
-            ctx.lineTo(pipe.points[i].x, pipe.points[i].y);
-        }
+function calculatePipeLength(points) {
+    if (!points || points.length < 2) return 0;
+    let totalPx = 0;
+    for (let i = 1; i < points.length; i++) {
+        totalPx += Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
+    }
+    const pxm = typeof pixelsPerMeter !== 'undefined' ? pixelsPerMeter : 20;
+    return Math.round((totalPx / pxm) * 100) / 100;
+}
 
-        ctx.strokeStyle = pipe === selectedObj ? '#00fbff' : '#3498db';
-        ctx.lineWidth = (pipe.pipeType === 'pe32' ? 5 : 3) / scale;
-        ctx.setLineDash([6 / scale, 3 / scale]); // Gestrichelte Linie für Rohre
-        ctx.stroke();
-        ctx.setLineDash([]); // Reset
-
-        // Anpack-Punkte bei Auswahl
-        if (pipe === selectedObj) {
-            pipe.points.forEach(p => {
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 5 / scale, 0, Math.PI * 2);
-                ctx.fillStyle = '#00fbff';
-                ctx.fill();
-            });
-        }
-    });
+function updatePipeProp(prop, val) {
+    if (selectedObj && selectedObj.type === 'pipe') {
+        selectedObj[prop] = val;
+        draw();
+    }
 }
