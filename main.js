@@ -1,6 +1,11 @@
 // main.js - CAD Hauptsteuerung & Event-Handling
 import { State } from './state.js';
 import { updateSidebar } from './sidebar.js';
+import { drawLawn, calculatePolygonArea } from './lawn.js';
+import { drawPipe } from './pipes.js';
+import { drawSprinkler } from './sprinklers.js';
+import { drawDripZone } from './drip-renderer.js';
+
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
