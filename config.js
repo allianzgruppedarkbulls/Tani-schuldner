@@ -6,6 +6,7 @@ export const SYSTEM_CONFIG = {
         { id: 'surface', name: 'Offenes Gewässer / Fluss' },
         { id: 'tap', name: 'Hauswasseranschluss' }
     ],
+    
     pumps: [
         { id: 'standard_3m3', name: 'Standard-Pumpe (3 m³/h, 3.5 bar)', flow: 3.0, pressure: 3.5 },
         { id: 'pro_5m3', name: 'Profi-Pumpe (5 m³/h, 4.5 bar)', flow: 5.0, pressure: 4.5 },
