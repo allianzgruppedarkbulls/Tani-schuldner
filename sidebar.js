@@ -127,7 +127,7 @@ if (obj.type === 'sprinkler') {
             </div>
             
             <label style="font-size:11px; color:#94a3b8;">Bezeichnung / Name:</label>
-            <input type="text" value="${obj.name || ''}" onchange="updateSystemMeta('name', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
+            <input type="text" value="${obj.name || ''}" onchange="updateSprinklerProp('name', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
 
             <label style="font-size:11px; color:#94a3b8;">Modell:</label>
             <select onchange="updateSprinklerProp('model', this.value)" style="width:100%; padding:6px; background:#1e293b; border:1px solid #475569; color:#fff; border-radius:4px; margin-bottom:8px;">
