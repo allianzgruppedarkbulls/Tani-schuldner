@@ -369,7 +369,7 @@ function draw() {
         } else if (obj.type === 'drip') {
             drawDripZone(ctx, obj, scale, State.pixelsPerMeter, isSelected);
         } else if (obj.type === 'sprinkler') {
-            drawSprinkler(ctx, obj, scale, isSelected);
+            drawSprinkler(ctx, obj, scale, State.pixelsPerMeter, isSelected);
         } else if (obj.type === 'pipe') {
             drawPipe(ctx, obj, scale, isSelected);
         } else if (obj.type === 'source') {
