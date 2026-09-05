@@ -2,7 +2,6 @@
 import { SYSTEM_CONFIG } from './config.js';
 import { State } from './state.js';
 
-// Palette für automatische Farbvergabe bei Parallelrohren
 const PALETTE = ['#38bdf8', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316'];
 
 export function createPipe(points, diameter = 25, label = 'Hauptstrang', color = null) {
@@ -11,15 +10,14 @@ export function createPipe(points, diameter = 25, label = 'Hauptstrang', color =
         type: 'pipe',
         label: label,
         points: [...points],
-        diameter: Number(diameter), // in mm
-        assignedZone: 'Sektor 1',   // Zuweisung zu Ventil/Regner-Gruppe
-        flowRateLh: 1200,          // Durchflussmenge in l/h (Standardwert für Berechnungen)
+        diameter: Number(diameter),
+        assignedZone: 'Sektor 1',
+        flowRateLh: 1200,
         customColor: color,
         locked: false
     };
 }
 
-// Erstellt N parallele Leitungen neben der gezeichneten Trasse
 export function createParallelPipes(basePoints, count = 2, spacingPx = 8, diameter = 25) {
     const generatedPipes = [];
     const halfCount = (count - 1) / 2;
@@ -61,18 +59,16 @@ export function drawPipe(ctx, obj, scale, isSelected) {
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // Segment-Bemaßung IMMER anzeigen
+    // Segment-Bemaßung (Meter-Angabe auf jedem Abschnitt)
     const pxm = State.pixelsPerMeter || 20;
 
     for (let i = 1; i < obj.points.length; i++) {
         const p1 = obj.points[i - 1];
         const p2 = obj.points[i];
 
-        // Teilstrecken-Länge
         const segDistPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const segMeters = (segDistPx / pxm).toFixed(2);
 
-        // Segment-Label in der Mitte
         const midX = (p1.x + p2.x) / 2;
         const midY = (p1.y + p2.y) / 2;
 
@@ -85,7 +81,7 @@ export function drawPipe(ctx, obj, scale, isSelected) {
         ctx.fillText(`${segMeters}m`, midX, midY);
     }
 
-    // Eckpunkte anzeigen bei Auswahl
+    // Eckpunkte bei Auswahl anzeigen
     if (isSelected) {
         obj.points.forEach(p => {
             ctx.beginPath();
@@ -101,41 +97,17 @@ export function drawPipe(ctx, obj, scale, isSelected) {
     ctx.restore();
 }
 
-        // Eckpunkte anzeigen
-        obj.points.forEach(p => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 5 / scale, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#f59e0b';
-            ctx.lineWidth = 2 / scale;
-            ctx.fill();
-            ctx.stroke();
-        });
-    }
-
-    ctx.restore();
-}
-
-// Berechnung von Hydraulik-Kennzahlen (Geschwindigkeit & Druckverlust)
 export function calculateHydraulics(pipe) {
     const lengthMeters = calculatePipeLength(pipe.points);
     const pipeConfig = SYSTEM_CONFIG.pipes.find(p => p.outerDiameter === Number(pipe.diameter));
     
-    // Innendurchmesser in Meter (Standard-Fallback: 80% des Außendurchmessers)
     const dInMeters = pipeConfig ? pipeConfig.innerDiameter : (pipe.diameter * 0.8) / 1000;
-    
-    // Durchfluss Q in m³/s
     const qM3s = (pipe.flowRateLh || 1000) / 3600000;
-    
-    // Querschnittsfläche A in m²
     const areaM2 = Math.PI * Math.pow(dInMeters / 2, 2);
-    
-    // Fließgeschwindigkeit v in m/s
     const velocityMs = areaM2 > 0 ? qM3s / areaM2 : 0;
 
-    // Druckverlust-Abschätzung in bar (Darcy-Weisbach Vereinfachung)
-    const lambda = 0.025; // Reibungsbeiwert PE-Rohr
-    const rho = 1000;      // Dichte Wasser kg/m³
+    const lambda = 0.025;
+    const rho = 1000;
     const lossPascal = lambda * (lengthMeters / dInMeters) * (rho * Math.pow(velocityMs, 2) / 2);
     const lossBar = lossPascal / 100000;
 
@@ -174,7 +146,6 @@ export function getPipeSidebarHTML(obj) {
             <label style="display:block; font-size:12px; color:#94a3b8;">Zuweisung Ventil / Sektor:</label>
             <input type="text" value="${obj.assignedZone || 'Sektor 1'}" onchange="updatePipeProp('assignedZone', this.value)" style="width:100%; padding:6px; margin-bottom:15px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
 
-            <!-- Technical Data / Hydraulik Engine Box -->
             <div style="background:#0f172a; padding:12px; border-radius:6px; border:1px solid #334155;">
                 <h4 style="margin:0 0 8px 0; color:#e2e8f0; font-size:13px;">📊 Hydraulische Daten</h4>
                 <div style="font-size:12px; display:flex; justify-content:space-between; margin-bottom:4px;">
@@ -184,17 +155,16 @@ export function getPipeSidebarHTML(obj) {
                     <span>Fließgeschwindigkeit:</span> <strong>${hyd.velocity} m/s</strong>
                 </div>
                 <div style="font-size:12px; display:flex; justify-content:space-between; color:${hyd.isLossWarning ? '#ef4444' : '#10b981'};">
-                    <span>Druckverlust ($\Delta p$):</span> <strong>~${hyd.pressureLoss} bar</strong>
+                    <span>Druckverlust (&Delta;p):</span> <strong>~${hyd.pressureLoss} bar</strong>
                 </div>
                 ${hyd.isVelocityWarning ? '<p style="color:#ef4444; font-size:10px; margin:6px 0 0 0;">⚠️ Geschw. > 2.0 m/s: Druckstoßgefahr!</p>' : ''}
             </div>
 
-            <!-- Parallel Trassen Generator UI -->
             <div style="margin-top:15px; border-top:1px solid #334155; padding-top:10px;">
                 <label style="display:block; font-size:12px; color:#94a3b8;">Paralleltrasse erzeugen:</label>
                 <div style="display:flex; gap:6px; margin-top:6px;">
                     <input type="number" id="parallel-count" value="3" min="2" max="10" style="width:60px; padding:6px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
-                    <button onclick="generateParallelFromSelected()" style="flex-1; background:#0284c7; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px;">Trasse erstellen</button>
+                    <button onclick="generateParallelFromSelected()" style="flex:1; background:#0284c7; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px;">Trasse erstellen</button>
                 </div>
             </div>
         </div>`;
@@ -218,7 +188,6 @@ export function updatePipeProp(prop, val) {
     }
 }
 
-// Vektor-Versatz-Algorithmus für parallele Polylinien
 function offsetPolyline(points, offset) {
     if (points.length < 2) return points;
     const newPoints = [];
@@ -242,7 +211,6 @@ function offsetPolyline(points, offset) {
             continue;
         }
 
-        // Normale-Vektor berechnen (90 Grad Drehung)
         const nx = -dy / len;
         const ny = dx / len;
 
@@ -255,7 +223,6 @@ function offsetPolyline(points, offset) {
     return newPoints;
 }
 
-// Action Handler für die Sidebar
 export function generateParallelFromSelected() {
     if (State.selectedObj && State.selectedObj.type === 'pipe') {
         const input = document.getElementById('parallel-count');
@@ -268,7 +235,6 @@ export function generateParallelFromSelected() {
             State.selectedObj.diameter
         );
 
-        // Altes Einzelrohr durch Parallel-Rohre ersetzen
         const index = State.objects.indexOf(State.selectedObj);
         if (index > -1) {
             State.objects.splice(index, 1, ...parallelPipes);
@@ -280,7 +246,6 @@ export function generateParallelFromSelected() {
     }
 }
 
-// Global Bindings
 if (typeof window !== 'undefined') {
     window.updatePipeProp = updatePipeProp;
     window.generateParallelFromSelected = generateParallelFromSelected;
