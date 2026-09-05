@@ -2,10 +2,9 @@
 import { State } from './state.js';
 import { updateSidebar } from './sidebar.js';
 import { drawLawn, calculatePolygonArea } from './lawn.js';
-import { drawPipe } from './pipes.js';
+import { drawPipe, getSnappedPoint, getPipeSidebarHTML } from './pipes.js';
 import { drawSprinkler } from './sprinklers.js';
 import { drawDripZone } from './drip-renderer.js';
-
 
 const canvas = document.getElementById('mainCanvas');
 const ctx = canvas.getContext('2d');
@@ -184,7 +183,6 @@ function updatePixelsPerMeter(newPxM) {
     draw();
 }
 
-
 // Maus-Events auf Canvas
 canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -257,17 +255,23 @@ canvas.addEventListener('mousedown', (e) => {
         return;
     }
 
-    // 4. Rohrleitungen verlegen
+    // 4. Rohrleitungen verlegen (mit Magnet-Snap)
     if (State.currentTool === 'draw-pipe') {
-        pipePoints.push(world);
+        const snapped = getSnappedPoint(world.x, world.y, 15 / scale);
+        const pt = { x: snapped.x, y: snapped.y };
+
+        pipePoints.push(pt);
         if (pipePoints.length >= 2) {
-            State.objects.push({
+            const newPipe = {
                 type: 'pipe',
                 points: [...pipePoints],
                 diameter: 25,
+                label: 'Hauptleitung',
+                assignedZone: 'Sektor 1',
                 locked: false
-            });
-            pipePoints = [world];
+            };
+            State.objects.push(newPipe);
+            pipePoints = [pt]; // Ende ist Startpunkt für das nächste Segment
         }
         draw();
         return;
@@ -275,23 +279,73 @@ canvas.addEventListener('mousedown', (e) => {
 
     // 5. Auswahl & Verschieben
     if (State.currentTool === 'select') {
+        const handleRadius = 12 / scale;
+
+        // A) Hauptknotenpunkte des ausgewählten Objekts prüfen
         if (State.selectedObj && State.selectedObj.points && !State.selectedObj.locked) {
-            const handleRadius = 12 / scale;
             for (let i = 0; i < State.selectedObj.points.length; i++) {
                 if (Math.hypot(world.x - State.selectedObj.points[i].x, world.y - State.selectedObj.points[i].y) < handleRadius) {
                     activeHandleIndex = i;
                     return;
                 }
             }
+
+            // B) Biegbare Zwischenpunkte (Mittelpunkte) bei Rohren prüfen
+            if (State.selectedObj.type === 'pipe') {
+                for (let i = 1; i < State.selectedObj.points.length; i++) {
+                    const p1 = State.selectedObj.points[i - 1];
+                    const p2 = State.selectedObj.points[i];
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+
+                    if (Math.hypot(world.x - midX, world.y - midY) < handleRadius) {
+                        // Neuen Punkt mitten in der Segmentleiste einfügen & greifen
+                        State.selectedObj.points.splice(i, 0, { x: world.x, y: world.y });
+                        activeHandleIndex = i;
+                        draw();
+                        return;
+                    }
+                }
+            }
         }
 
-        State.selectedObj = State.objects.slice().reverse().find(o => o.points && isPointInPolygon(world, o.points)) || 
-                            State.objects.slice().reverse().find(o => (o.type === 'source' || o.type === 'sprinkler') ? Math.hypot(world.x - o.x, world.y - o.y) < 15/scale : false) || null;
+        // C) Neues Objekt anklicken
+        let foundObj = null;
+        
+        // Erst Rohre prüfen (Abstand zur Line Segment)
+        for (let o of State.objects.slice().reverse()) {
+            if (o.type === 'pipe' && o.points) {
+                for (let i = 1; i < o.points.length; i++) {
+                    if (distToSegment(world, o.points[i - 1], o.points[i]) < 10 / scale) {
+                        foundObj = o;
+                        break;
+                    }
+                }
+            }
+            if (foundObj) break;
+        }
+
+        // Sonst sonstige Objekte prüfen (Sprinkler, Quellen, Flächen)
+        if (!foundObj) {
+            foundObj = State.objects.slice().reverse().find(o => (o.type === 'source' || o.type === 'sprinkler') ? Math.hypot(world.x - o.x, world.y - o.y) < 15 / scale : false) ||
+                       State.objects.slice().reverse().find(o => o.points && isPointInPolygon(world, o.points)) || null;
+        }
+
+        State.selectedObj = foundObj;
         activeHandleIndex = -1;
         updateSidebar(State.selectedObj);
         draw();
     }
 });
+
+// Hilfsfunktion: Abstand Punkt zu einer Strecke (Linien-Klickerkennung)
+function distToSegment(p, v, w) {
+    const l2 = Math.hypot(v.x - w.x, v.y - w.y) ** 2;
+    if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+}
 
 function isPointInPolygon(point, vs) {
     let x = point.x, y = point.y, inside = false;
@@ -344,7 +398,9 @@ canvas.addEventListener('mousemove', (e) => {
 
     if (activeHandleIndex !== -1 && State.selectedObj && State.selectedObj.points && !State.selectedObj.locked) {
         State.selectedObj.points[activeHandleIndex] = world;
-        State.selectedObj.areaM2 = calculatePolygonArea(State.selectedObj.points, State.pixelsPerMeter);
+        if (State.selectedObj.type !== 'pipe') {
+            State.selectedObj.areaM2 = calculatePolygonArea(State.selectedObj.points, State.pixelsPerMeter);
+        }
         updateSidebar(State.selectedObj);
         draw();
         return;
