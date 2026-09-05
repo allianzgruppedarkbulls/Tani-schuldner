@@ -1,4 +1,4 @@
-// pipes.js - Hydraulik-Engine mit Fitting-Berechnung, Snap-Nodes & Parallel-Trassen
+// pipes.js - Hydraulik-Engine mit Snap-Nodes, Biegepunkten, Fittingen & Parallel-Trassen
 import { SYSTEM_CONFIG } from './config.js';
 import { State } from './state.js';
 
@@ -18,6 +18,24 @@ export function createPipe(points, diameter = 25, label = 'Hauptstrang', color =
     };
 }
 
+// Snapping-Funktion: Prüft, ob der Cursor nah an einem bestehenden Knoten liegt
+export function getSnappedPoint(cursorX, cursorY, snapRadius = 15) {
+    let snapped = { x: cursorX, y: cursorY, isSnapped: false };
+    const allObjects = State.objects || [];
+
+    for (const obj of allObjects) {
+        if (obj.points) {
+            for (const p of obj.points) {
+                const dist = Math.hypot(p.x - cursorX, p.y - cursorY);
+                if (dist < snapRadius) {
+                    return { x: p.x, y: p.y, isSnapped: true };
+                }
+            }
+        }
+    }
+    return snapped;
+}
+
 export function drawPipe(ctx, obj, scale, isSelected) {
     if (!obj.points || obj.points.length < 2) return;
 
@@ -30,7 +48,7 @@ export function drawPipe(ctx, obj, scale, isSelected) {
 
     ctx.save();
     
-    // 1. Rohr-Hauptlinie zeichnen
+    // 1. Hauptlinie zeichnen
     ctx.beginPath();
     ctx.moveTo(obj.points[0].x, obj.points[0].y);
     for (let i = 1; i < obj.points.length; i++) {
@@ -43,7 +61,7 @@ export function drawPipe(ctx, obj, scale, isSelected) {
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // 2. Segment-Längen (Dauerhafte Anzeige)
+    // 2. Teilstrecken-Längen (Dauerhafte Anzeige)
     const pxm = State.pixelsPerMeter || 20;
 
     for (let i = 1; i < obj.points.length; i++) {
@@ -56,6 +74,7 @@ export function drawPipe(ctx, obj, scale, isSelected) {
         const midX = (p1.x + p2.x) / 2;
         const midY = (p1.y + p2.y) / 2;
 
+        // Label-Hintergrund
         ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
         ctx.fillRect(midX - (22 / scale), midY - (10 / scale), 44 / scale, 16 / scale);
         ctx.fillStyle = '#ffffff';
@@ -63,9 +82,20 @@ export function drawPipe(ctx, obj, scale, isSelected) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`${segMeters}m`, midX, midY);
+
+        // Biegbare Zwischenpunkte (Mittelpunkte zum Ziehen im Auswahlmodus)
+        if (isSelected) {
+            ctx.beginPath();
+            ctx.arc(midX, midY, 4 / scale, 0, Math.PI * 2);
+            ctx.fillStyle = '#94a3b8';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1 / scale;
+            ctx.fill();
+            ctx.stroke();
+        }
     }
 
-    // 3. Verbindungsknoten / Kugelköpfe (Snap-Nodes) an jedem Punkt
+    // 3. Verbindungsknoten / Kugelköpfe (Snap-Nodes) an jedem Hauptpunkt
     obj.points.forEach((p, index) => {
         const isEnd = index === 0 || index === obj.points.length - 1;
         ctx.beginPath();
@@ -91,15 +121,11 @@ export function calculateHydraulics(pipe) {
     const areaM2 = Math.PI * Math.pow(dInMeters / 2, 2);
     const velocityMs = areaM2 > 0 ? qM3s / areaM2 : 0;
 
-    // Analyse der Formstücke (Winkel & T-Stücke)
     const fittings = analyzeFittings(pipe);
     
-    // Rohrreibungsverlust (Darcy-Weisbach)
     const lambda = 0.025;
     const rho = 1000;
     const lossPipePascal = lambda * (lengthMeters / dInMeters) * (rho * Math.pow(velocityMs, 2) / 2);
-
-    // Fitting-Druckverlust: Delta_p = Zeta * (rho * v^2 / 2)
     const lossFittingsPascal = fittings.totalZeta * (rho * Math.pow(velocityMs, 2) / 2);
 
     const totalLossBar = (lossPipePascal + lossFittingsPascal) / 100000;
@@ -117,13 +143,12 @@ export function calculateHydraulics(pipe) {
     };
 }
 
-// Analysiert Richtungsänderungen (Winkel) und Schnittpunkte mit anderen Rohren (T-Stücke)
 function analyzeFittings(pipe) {
     let totalZeta = 0;
     let anglesCount = 0;
     let teesCount = 0;
 
-    // 1. Winkel im Rohrverlauf berechnen
+    // 1. Winkel im Verlauf
     for (let i = 1; i < pipe.points.length - 1; i++) {
         const pPrev = pipe.points[i - 1];
         const pCurr = pipe.points[i];
@@ -138,23 +163,22 @@ function analyzeFittings(pipe) {
 
         if (angleDeg > 15) {
             anglesCount++;
-            // Zeta-Werte für Bögen/Winkel
-            if (angleDeg > 75) totalZeta += 1.2;     // ca. 90-Grad-Bogen
-            else if (angleDeg > 35) totalZeta += 0.6; // ca. 45-Grad-Bogen
-            else totalZeta += 0.3;                    // flacher Bogen
+            if (angleDeg > 75) totalZeta += 1.2;
+            else if (angleDeg > 35) totalZeta += 0.6;
+            else totalZeta += 0.3;
         }
     }
 
-    // 2. Schnittpunkte mit anderen Rohren als T-Stücke werten
+    // 2. T-Stücke / Schnittpunkte mit anderen Rohren
     const allObjects = State.objects || [];
     pipe.points.forEach(p => {
         allObjects.forEach(other => {
             if (other.type === 'pipe' && other.id !== pipe.id) {
                 other.points.forEach(op => {
                     const dist = Math.hypot(p.x - op.x, p.y - op.y);
-                    if (dist < 5) { // Verbindungsknoten erkannt
+                    if (dist < 5) {
                         teesCount++;
-                        totalZeta += 1.5; // Zeta für T-Stück Abzweig
+                        totalZeta += 1.5;
                     }
                 });
             }
@@ -167,6 +191,7 @@ function analyzeFittings(pipe) {
 export function getPipeSidebarHTML(obj) {
     const hyd = calculateHydraulics(obj);
     const currentDiameter = Number(obj.diameter) || 25;
+    const orderLength = Math.ceil(hyd.length * 1.10); // +10% Verschnitt
 
     return `
         <div style="padding: 15px; color: #fff; font-family: sans-serif;">
@@ -190,33 +215,31 @@ export function getPipeSidebarHTML(obj) {
             <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:2px;">Ventil-Sektor Zuweisung:</label>
             <input type="text" value="${obj.assignedZone || 'Sektor 1'}" onchange="updatePipeProp('assignedZone', this.value)" style="width:100%; padding:6px; margin-bottom:12px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px;">
 
-            <!-- Technische Daten Box -->
+            <!-- Material & Bestellmengen-Box -->
             <div style="background:#0f172a; padding:12px; border-radius:6px; border:1px solid #334155; margin-bottom:15px;">
-                <h4 style="margin:0 0 8px 0; color:#e2e8f0; font-size:12px; border-bottom:1px solid #334155; padding-bottom:4px;">📊 Technische Daten & Hydraulik</h4>
+                <h4 style="margin:0 0 8px 0; color:#38bdf8; font-size:13px; border-bottom:1px solid #334155; padding-bottom:4px;">📦 Material & Bestellung</h4>
                 
-                <div style="font-size:11px; display:flex; justify-content:space-between; margin-bottom:4px;">
-                    <span style="color:#94a3b8;">Gesamtlänge:</span> <strong>${hyd.length} m</strong>
+                <div style="font-size:12px; display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span style="color:#94a3b8;">Gesamtlänge (Netto):</span> <strong style="color:#fff;">${hyd.length} m</strong>
                 </div>
+                <div style="font-size:12px; display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="color:#f59e0b;">Empfohlene Bestellmenge (+10%):</span> <strong style="color:#f59e0b;">${orderLength} m</strong>
+                </div>
+
+                <h4 style="margin:10px 0 6px 0; color:#e2e8f0; font-size:12px; border-bottom:1px solid #334155; padding-bottom:4px;">📊 Hydraulische Daten</h4>
+                
                 <div style="font-size:11px; display:flex; justify-content:space-between; margin-bottom:4px;">
                     <span style="color:#94a3b8;">Erkannte Winkel / Bögen:</span> <strong>${hyd.anglesCount} Stk.</strong>
                 </div>
                 <div style="font-size:11px; display:flex; justify-content:space-between; margin-bottom:6px;">
                     <span style="color:#94a3b8;">T-Stücke / Knoten:</span> <strong>${hyd.teesCount} Stk.</strong>
                 </div>
-
-                <hr style="border:none; border-top:1px dashed #334155; margin:6px 0;">
-
                 <div style="font-size:11px; display:flex; justify-content:space-between; margin-bottom:4px; color:${hyd.isVelocityWarning ? '#ef4444' : '#10b981'};">
                     <span>Fließgeschwindigkeit:</span> <strong>${hyd.velocity} m/s</strong>
                 </div>
                 <div style="font-size:11px; display:flex; justify-content:space-between; color:${hyd.isLossWarning ? '#ef4444' : '#10b981'};">
-                    <span>Druckverlust Gesamtsystem:</span> <strong>~${hyd.pressureLoss} bar</strong>
+                    <span>Druckverlust ($\Delta p$):</span> <strong>~${hyd.pressureLoss} bar</strong>
                 </div>
-                <div style="font-size:9px; color:#64748b; margin-top:2px; text-align:right;">
-                    (Rohr: ${hyd.pipeLossBar} bar | Fittinge: ${hyd.fittingLossBar} bar)
-                </div>
-
-                ${hyd.isVelocityWarning ? '<p style="color:#ef4444; font-size:10px; margin:6px 0 0 0;">⚠️ Geschw. > 2.0 m/s: Druckstoßgefahr!</p>' : ''}
             </div>
 
             <!-- Parallel Trassen Generator -->
