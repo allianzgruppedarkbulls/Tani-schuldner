@@ -61,30 +61,45 @@ export function drawPipe(ctx, obj, scale, isSelected) {
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // Segment-Bemaßung & Punkte bei Auswahl
+    // Segment-Bemaßung IMMER anzeigen
+    const pxm = State.pixelsPerMeter || 20;
+
+    for (let i = 1; i < obj.points.length; i++) {
+        const p1 = obj.points[i - 1];
+        const p2 = obj.points[i];
+
+        // Teilstrecken-Länge
+        const segDistPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const segMeters = (segDistPx / pxm).toFixed(2);
+
+        // Segment-Label in der Mitte
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(midX - (22 / scale), midY - (10 / scale), 44 / scale, 16 / scale);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${10 / scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${segMeters}m`, midX, midY);
+    }
+
+    // Eckpunkte anzeigen bei Auswahl
     if (isSelected) {
-        const pxm = State.pixelsPerMeter || 20;
-
-        for (let i = 1; i < obj.points.length; i++) {
-            const p1 = obj.points[i - 1];
-            const p2 = obj.points[i];
-
-            // Teilstrecken-Länge
-            const segDistPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-            const segMeters = (segDistPx / pxm).toFixed(2);
-
-            // Segment-Label in der Mitte
-            const midX = (p1.x + p2.x) / 2;
-            const midY = (p1.y + p2.y) / 2;
-
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            ctx.fillRect(midX - (20 / scale), midY - (10 / scale), 40 / scale, 16 / scale);
+        obj.points.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 5 / scale, 0, Math.PI * 2);
             ctx.fillStyle = '#ffffff';
-            ctx.font = `${10 / scale}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(`${segMeters}m`, midX, midY);
-        }
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 2 / scale;
+            ctx.fill();
+            ctx.stroke();
+        });
+    }
+
+    ctx.restore();
+}
 
         // Eckpunkte anzeigen
         obj.points.forEach(p => {
